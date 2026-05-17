@@ -88,6 +88,8 @@ export const createCustomer = async (req, res) => {
       roBodyType,
       customerType = "REGULAR",
       amcContract,
+      amcPaymentAmount,
+      amcPaymentStatus = "PAID",
       installationDate,
       filterPrice = 0,
       initialPaidAmount = 0,
@@ -253,7 +255,27 @@ export const createCustomer = async (req, res) => {
         paymentStatus,
       });
     }
+    // 8️⃣ Create AMC_PAYMENT invoice if payment was collected at registration
+    const amcPaid = Number(amcPaymentAmount) || 0;
+    if (customerType === "AMC" && amcPaid > 0) {
+      await Invoice.create({
+        userId,
+        customerId: customer._id,
+        type: "AMC_PAYMENT",
+        referenceId: customer._id,
+        invoiceDate: new Date(),
+        items: [{ name: "AMC Registration Payment", price: amcPaid }],
+        totalAmount: amcPaid,
+        paidAmount: amcPaymentStatus === "PAID" ? amcPaid : 0,
+        paymentStatus: amcPaymentStatus,
+      });
 
+      // Update the contract's last payment fields
+      await Customer.findByIdAndUpdate(customer._id, {
+        "amcContract.lastPaymentAmount": amcPaid,
+        "amcContract.lastPaymentDate": new Date(),
+      });
+    }
     return res.status(201).json({
       success: true,
       message: "Customer created successfully",
@@ -332,7 +354,14 @@ export const updateCustomerPayment = async (req, res) => {
 export const recordAmcPayment = async (req, res) => {
   try {
     const { id } = req.params;
-    const { amount, startDate, endDate, paymentDate, notes = "" } = req.body;
+    const {
+      amount,
+      startDate,
+      endDate,
+      paymentDate,
+      notes = "",
+      paymentStatus = "PAID",
+    } = req.body;
 
     const paidAmount = Number(amount);
     if (!Number.isFinite(paidAmount) || paidAmount <= 0) {
@@ -421,8 +450,8 @@ export const recordAmcPayment = async (req, res) => {
         },
       ],
       totalAmount: paidAmount,
-      paidAmount,
-      paymentStatus: "PAID",
+      paidAmount: paymentStatus === "PAID" ? paidAmount : 0,
+      paymentStatus,
     });
 
     return res.status(201).json({
@@ -662,7 +691,7 @@ export const getCustomers = async (req, res) => {
     } = req.query;
 
     const currentPage = parseInt(page) || 1;
-    const perPage = Math.min(parseInt(limit) || 20, 100); // cap at 100
+    const perPage = Math.min(parseInt(limit) || 20, 500); // cap at 100
     const skip = (currentPage - 1) * perPage;
 
     const query = { userId: req.userId };

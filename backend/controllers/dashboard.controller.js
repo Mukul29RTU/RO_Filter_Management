@@ -63,7 +63,20 @@ export const getDashboardSummary = async (req, res) => {
       if (diffDays < 0) overdueServices++;
       else if (diffDays <= 10) upcomingServices++;
     });
+    // const startOfToday = new Date(now);
+    // startOfToday.setHours(0, 0, 0, 0);
 
+    // customers.forEach((c) => {
+    //   const nextDate = new Date(c.nextServiceDate);
+    //   nextDate.setHours(0, 0, 0, 0);
+
+    //   const diffDays = Math.ceil(
+    //     (nextDate - startOfToday) / (1000 * 60 * 60 * 24),
+    //   );
+
+    //   if (diffDays < 0) overdueServices++;
+    //   else if (diffDays <= 10) upcomingServices++;
+    // });
     /* ================= CUSTOMERS ================= */
 
     const totalActive = await Customer.countDocuments({

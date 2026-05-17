@@ -68,8 +68,8 @@ const UpcomingOverdueServices = () => {
         //   }
         // });
 
-        setUpcoming(upcomingList);
-        setOverdue(overdueList);
+        // setUpcoming(upcomingList);
+        // setOverdue(overdueList);
       } catch (err) {
         setError("Failed to load services");
       } finally {

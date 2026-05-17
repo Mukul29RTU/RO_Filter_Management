@@ -25,7 +25,10 @@ const resolveServiceCycleMonths = ({
   return FALLBACK_SERVICE_CYCLE_MONTHS;
 };
 
-const recomputeCustomerServiceSchedule = async (customer, ownerDefaultCycleMonths) => {
+const recomputeCustomerServiceSchedule = async (
+  customer,
+  ownerDefaultCycleMonths,
+) => {
   const resolvedServiceCycleMonths = resolveServiceCycleMonths({
     customerCycleMonthsOverride: customer.serviceCycleMonthsOverride,
     ownerDefaultCycleMonths,
@@ -81,7 +84,10 @@ const recomputeCustomerServiceSchedule = async (customer, ownerDefaultCycleMonth
       resolvedServiceCycleMonths,
     );
   } else {
-    customer.nextServiceDate = addMonths(baselineDate, resolvedServiceCycleMonths);
+    customer.nextServiceDate = addMonths(
+      baselineDate,
+      resolvedServiceCycleMonths,
+    );
   }
 };
 
@@ -96,6 +102,7 @@ export const createService = async (req, res) => {
       affectsServiceCycle = true,
       replacedParts = [],
       serviceCharge = 0,
+      chargePaymentStatus = "PAID",
     } = req.body;
 
     if (!customerId) {
@@ -213,8 +220,13 @@ export const createService = async (req, res) => {
         referenceId: service._id,
         items: invoiceItems,
         totalAmount: totalServiceAmount,
-        paidAmount: totalServiceAmount, // assumed paid
-        paymentStatus: "PAID",
+        paidAmount:
+          chargePaymentStatus === "PAID"
+            ? totalServiceAmount
+            : chargePaymentStatus === "PARTIAL"
+              ? totalServiceAmount / 2
+              : 0,
+        paymentStatus: chargePaymentStatus,
         invoiceDate: actualServiceDate,
       });
     }
