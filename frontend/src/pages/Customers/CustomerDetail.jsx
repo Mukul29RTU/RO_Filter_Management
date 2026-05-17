@@ -729,6 +729,11 @@ const CustomerDetail = () => {
                   type: "text",
                   placeholder: "Any notes",
                 },
+                {
+                  label: "Payment Status",
+                  key: "paymentStatus",
+                  type: "select",
+                },
               ].map(({ label, key, type, placeholder }) => (
                 <div key={key} style={{ marginBottom: 12 }}>
                   <label
@@ -740,21 +745,46 @@ const CustomerDetail = () => {
                   >
                     {label}
                   </label>
-                  <input
-                    type={type}
-                    min={type === "number" ? "1" : undefined}
-                    value={amcForm[key]}
-                    placeholder={placeholder}
-                    onChange={(e) =>
-                      setAmcForm((prev) => ({ ...prev, [key]: e.target.value }))
-                    }
-                    style={{
-                      width: "100%",
-                      padding: "8px 10px",
-                      borderRadius: 6,
-                      border: "1px solid #ccc",
-                    }}
-                  />
+                  {type === "select" ? (
+                    <select
+                      value={amcForm[key]}
+                      onChange={(e) =>
+                        setAmcForm((prev) => ({
+                          ...prev,
+                          [key]: e.target.value,
+                        }))
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        borderRadius: 6,
+                        border: "1px solid #ccc",
+                      }}
+                    >
+                      <option value="PAID">Paid</option>
+                      <option value="PARTIAL">Partial / Half Paid</option>
+                      <option value="PENDING">Pending / Not Collected</option>
+                    </select>
+                  ) : (
+                    <input
+                      type={type}
+                      min={type === "number" ? "1" : undefined}
+                      value={amcForm[key]}
+                      placeholder={placeholder}
+                      onChange={(e) =>
+                        setAmcForm((prev) => ({
+                          ...prev,
+                          [key]: e.target.value,
+                        }))
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        borderRadius: 6,
+                        border: "1px solid #ccc",
+                      }}
+                    />
+                  )}
                 </div>
               ))}
 

@@ -236,23 +236,25 @@ const CustomersList = () => {
                 </div>
 
                 <div className="badge-container">
-                  <div className="badge-group">
-                    <span className="badge-label">Payment</span>
-                    <span
-                      className="badge"
-                      style={{
-                        backgroundColor: paymentStyle.bg,
-                        color: paymentStyle.text,
-                      }}
-                    >
-                      {customer.filterPaymentStatus
-                        ? getEnumLabel(
-                            "paymentStatus",
-                            customer.filterPaymentStatus,
-                          )
-                        : "N/A"}
-                    </span>
-                  </div>
+                  {customer.customerType === "REGULAR" && (
+                    <div className="badge-group">
+                      <span className="badge-label">Payment</span>
+                      <span
+                        className="badge"
+                        style={{
+                          backgroundColor: paymentStyle.bg,
+                          color: paymentStyle.text,
+                        }}
+                      >
+                        {customer.filterPaymentStatus
+                          ? getEnumLabel(
+                              "paymentStatus",
+                              customer.filterPaymentStatus,
+                            )
+                          : "N/A"}
+                      </span>
+                    </div>
+                  )}
 
                   <div className="badge-group">
                     <span className="badge-label">Service</span>
