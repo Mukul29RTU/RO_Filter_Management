@@ -55,6 +55,7 @@ const AddService = () => {
   const [serviceType, setServiceType] = useState("SCHEDULED");
   const [affectsServiceCycle, setAffectsServiceCycle] = useState(true);
   const [serviceCharge, setServiceCharge] = useState("");
+  const [chargePaymentStatus, setChargePaymentStatus] = useState("PAID");
   const [parts, setParts] = useState([
     { partName: "", price: "", showDropdown: false },
   ]);
@@ -89,6 +90,7 @@ const AddService = () => {
         customerId: id,
         serviceDate,
         serviceType,
+        chargePaymentStatus,
         affectsServiceCycle,
         serviceCharge: Number(serviceCharge) || 0,
         replacedParts: parts
@@ -137,6 +139,7 @@ const AddService = () => {
                 onChange={(e) => setServiceType(e.target.value)}
               >
                 <option value="SCHEDULED">Scheduled Maintenance</option>
+                <option value="AMC_SERVICE">AMC Service</option>
                 <option value="EARLY">Early Service</option>
                 <option value="EMERGENCY">Emergency Repair</option>
               </select>
@@ -152,7 +155,18 @@ const AddService = () => {
                 onChange={(e) => setServiceCharge(e.target.value)}
               />
             </div>
-
+            <div className="form-section">
+              <label className="service-label">Payment Status</label>
+              <select
+                className="service-select"
+                value={chargePaymentStatus}
+                onChange={(e) => setChargePaymentStatus(e.target.value)}
+              >
+                <option value="PAID">Paid</option>
+                <option value="PARTIAL">Partial</option>
+                <option value="PENDING">Pending</option>
+              </select>
+            </div>
             <label className="checkbox-group">
               <input
                 type="checkbox"

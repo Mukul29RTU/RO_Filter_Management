@@ -33,6 +33,8 @@ const CustomerForm = () => {
     customerType: "REGULAR",
     amcStartDate: "",
     amcEndDate: "",
+    amcPaymentAmount: "",
+    amcPaymentStatus: "PAID",
   });
 
   // Derived booleans — used throughout the JSX to show/hide fields
@@ -162,6 +164,8 @@ const CustomerForm = () => {
               startDate: form.amcStartDate,
               endDate: form.amcEndDate,
             },
+            amcPaymentAmount: form.amcPaymentAmount,
+            amcPaymentStatus: form.amcPaymentStatus,
           }),
         };
 
@@ -388,6 +392,31 @@ const CustomerForm = () => {
                     className="form-input"
                     required
                   />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">AMC Payment Amount (₹)</label>
+                  <input
+                    type="number"
+                    name="amcPaymentAmount"
+                    value={form.amcPaymentAmount}
+                    onChange={handleChange}
+                    className="form-input"
+                    placeholder="Leave blank if not collected yet"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Payment Status</label>
+                  <select
+                    name="amcPaymentStatus"
+                    value={form.amcPaymentStatus}
+                    onChange={handleChange}
+                    className="form-input"
+                  >
+                    <option value="PAID">Paid</option>
+                    <option value="PARTIAL">Partial / Half Paid</option>
+                    <option value="PENDING">Pending / Not Collected</option>
+                  </select>
                 </div>
               </div>
             )}

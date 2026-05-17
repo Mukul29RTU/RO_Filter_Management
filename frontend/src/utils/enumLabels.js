@@ -3,6 +3,7 @@ const ENUM_LABELS = {
     SCHEDULED: "Scheduled",
     EARLY: "Early",
     EMERGENCY: "Emergency",
+    AMC_SERVICE: "AMC Service",
   },
   invoiceType: {
     FILTER_SALE: "Filter Sale",

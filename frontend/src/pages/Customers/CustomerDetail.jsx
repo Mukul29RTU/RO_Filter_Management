@@ -31,6 +31,7 @@ const CustomerDetail = () => {
     startDate: "",
     endDate: "",
     paymentDate: new Date().toISOString().slice(0, 10),
+    paymentStatus: "PAID",
     notes: "",
   });
 
@@ -216,6 +217,7 @@ const CustomerDetail = () => {
         startDate: amcForm.startDate,
         endDate: amcForm.endDate,
         paymentDate: amcForm.paymentDate,
+        paymentStatus: amcForm.paymentStatus,
         notes: amcForm.notes,
       });
       setShowAmcModal(false);
@@ -262,7 +264,15 @@ const CustomerDetail = () => {
         <header className="detail-header">
           <div>
             <h1>{renderSafeValue(customer.name)}</h1>
-            <p>📞 {renderSafeValue(customer.phone)}</p>
+            <p>
+              {" "}
+              <a
+                href={`tel:${customer.phone}`}
+                style={{ color: "inherit", textDecoration: "none" }}
+              >
+                📞 {renderSafeValue(customer.phone)}
+              </a>
+            </p>
 
             {/* Customer type badge */}
             <div style={{ marginTop: 6 }}>
@@ -384,7 +394,21 @@ const CustomerDetail = () => {
             <div className="info-row">
               <span className="info-label">Location</span>
               <span className="info-value">
-                {renderSafeValue(customer.location)}
+                {customer.location?.mapLink ? (
+                  <a
+                    href={customer.location.mapLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: "#2563eb",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Open in Maps
+                  </a>
+                ) : (
+                  "-"
+                )}
               </span>
             </div>
           </div>
