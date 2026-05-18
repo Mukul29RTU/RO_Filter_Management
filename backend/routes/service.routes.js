@@ -5,6 +5,7 @@ import {
   getAllServices,
   getServiceById,
   getServicesByCustomer,
+  updateServicePayment,
 } from "../controllers/service.controller.js";
 import { isAuthenticated } from "../middlewares/auth.middleware.js";
 
@@ -15,4 +16,5 @@ router.get("/", isAuthenticated, getAllServices);
 router.get("/customer/:customerId", isAuthenticated, getServicesByCustomer);
 router.get("/:id", isAuthenticated, getServiceById);
 router.delete("/:id", isAuthenticated, deleteService);
+router.patch("/:id/payment", isAuthenticated, updateServicePayment);
 export default router;

@@ -137,7 +137,7 @@ export const createService = async (req, res) => {
     );
 
     const totalServiceAmount = totalPartsAmount + serviceCharge;
-
+    //fix 1
     // 2️⃣ Create service record
     const service = await Service.create({
       userId,
@@ -148,6 +148,13 @@ export const createService = async (req, res) => {
       replacedParts,
       serviceCharge,
       totalServiceAmount,
+      chargePaymentStatus,
+      chargePaidAmount:
+        chargePaymentStatus === "PAID"
+          ? totalServiceAmount
+          : chargePaymentStatus === "PARTIAL"
+            ? totalServiceAmount / 2
+            : 0,
     });
 
     // 3️⃣ 🔻 Deduct parts inventory (DO NOT BLOCK SERVICE)
@@ -390,7 +397,8 @@ export const getServiceById = async (req, res) => {
         address: service.customerId?.address,
         roModel: service.customerId?.roModel,
       },
-
+      chargePaymentStatus: service.chargePaymentStatus || "PAID",
+      chargePaidAmount: service.chargePaidAmount || service.totalServiceAmount,
       serviceCharge: service.serviceCharge,
       replacedParts: service.replacedParts,
       totalServiceAmount: service.totalServiceAmount,
@@ -455,7 +463,56 @@ export const getServicesByCustomer = async (req, res) => {
     });
   }
 };
+export const updateServicePayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { additionalPaidAmount } = req.body;
 
+    const extra = Number(additionalPaidAmount);
+    if (!Number.isFinite(extra) || extra <= 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid amount" });
+    }
+
+    const service = await Service.findOne({ _id: id, userId: req.userId });
+    if (!service) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Service not found" });
+    }
+
+    const newPaid = (service.chargePaidAmount || 0) + extra;
+    const capped = Math.min(newPaid, service.totalServiceAmount);
+
+    service.chargePaidAmount = capped;
+    service.chargePaymentStatus =
+      capped >= service.totalServiceAmount ? "PAID" : "PARTIAL";
+    await service.save();
+
+    // Update linked invoice
+    const invoice = await Invoice.findOne({
+      referenceId: service._id,
+      type: "SERVICE",
+    });
+    if (invoice) {
+      invoice.paidAmount = capped;
+      invoice.paymentStatus = service.chargePaymentStatus;
+      await invoice.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment updated",
+      service,
+    });
+  } catch (error) {
+    console.error(error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to update payment" });
+  }
+};
 export const deleteService = async (req, res) => {
   try {
     const { id } = req.params;

@@ -28,6 +28,7 @@ const CustomerDetail = () => {
   const [amcError, setAmcError] = useState("");
   const [amcForm, setAmcForm] = useState({
     amount: "",
+    totalAmcAmount: "",
     startDate: "",
     endDate: "",
     paymentDate: new Date().toISOString().slice(0, 10),
@@ -219,6 +220,8 @@ const CustomerDetail = () => {
         paymentDate: amcForm.paymentDate,
         paymentStatus: amcForm.paymentStatus,
         notes: amcForm.notes,
+        totalAmcAmount:
+          Number(amcForm.totalAmcAmount) || Number(amcForm.amount),
       });
       setShowAmcModal(false);
       await loadData();
@@ -324,13 +327,13 @@ const CustomerDetail = () => {
           </button>
 
           {/* Update Payment — REGULAR only (they paid for a machine) */}
-          {isRegular && (
+          {customer?.payment?.filterPrice > 0 && (
             <button
               onClick={() => !isPaid && navigate(`/customers/${id}/payment`)}
               className={`btn btn-outline ${isPaid ? "btn-disabled" : ""}`}
               disabled={isPaid}
             >
-              {isPaid ? "Payment ✔" : "Update Payment"}
+              {isPaid ? "Filter Payment ✔" : "Update Filter Payment"}
             </button>
           )}
 
@@ -622,6 +625,70 @@ const CustomerDetail = () => {
                   <div className="modal-total">
                     Total: ₹{selectedService.totalServiceAmount}
                   </div>
+                  {selectedService?.chargePaymentStatus !== "PAID" && (
+                    <div
+                      style={{
+                        marginTop: 16,
+                        borderTop: "1px solid #e2e8f0",
+                        paddingTop: 14,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "#64748b",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Payment:{" "}
+                        <strong>
+                          {selectedService?.chargePaymentStatus || "PAID"}
+                        </strong>
+                        {" · "}Paid: ₹{selectedService?.chargePaidAmount || 0}
+                        {" · "}Remaining: ₹
+                        {Math.max(
+                          0,
+                          (selectedService?.totalServiceAmount || 0) -
+                            (selectedService?.chargePaidAmount || 0),
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input
+                          type="number"
+                          placeholder="Amount to record"
+                          id="svc-pay-input"
+                          style={{
+                            flex: 1,
+                            padding: "7px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #ccc",
+                          }}
+                        />
+                        <button
+                          className="btn btn-primary"
+                          style={{ whiteSpace: "nowrap" }}
+                          onClick={async () => {
+                            const val = Number(
+                              document.getElementById("svc-pay-input").value,
+                            );
+                            if (!val || val <= 0) return;
+                            try {
+                              await api.patch(
+                                `/api/services/${selectedService.id}/payment`,
+                                { additionalPaidAmount: val },
+                              );
+                              setSelectedService(null);
+                              await loadData();
+                            } catch (err) {
+                              alert(err?.message || "Failed to update payment");
+                            }
+                          }}
+                        >
+                          Record
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -734,6 +801,12 @@ const CustomerDetail = () => {
                   key: "paymentStatus",
                   type: "select",
                 },
+                {
+                  label: "Total AMC Fee (₹)",
+                  key: "totalAmcAmount",
+                  type: "number",
+                  placeholder: "Full fee for the period",
+                },
               ].map(({ label, key, type, placeholder }) => (
                 <div key={key} style={{ marginBottom: 12 }}>
                   <label
@@ -800,6 +873,24 @@ const CustomerDetail = () => {
                   {amcLoading ? "Saving..." : "Save AMC Payment"}
                 </button>
               </div>
+              {amcForm.totalAmcAmount && amcForm.amount && (
+                <div
+                  style={{
+                    background: "#f0fdf4",
+                    border: "1px solid #86efac",
+                    borderRadius: 8,
+                    padding: "10px 14px",
+                    marginBottom: 12,
+                    fontSize: 14,
+                  }}
+                >
+                  <strong>Remaining due: </strong>₹
+                  {Math.max(
+                    0,
+                    Number(amcForm.totalAmcAmount) - Number(amcForm.amount),
+                  ).toLocaleString("en-IN")}
+                </div>
+              )}
             </div>
           </div>
         </div>

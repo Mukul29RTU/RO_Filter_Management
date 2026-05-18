@@ -356,6 +356,7 @@ export const recordAmcPayment = async (req, res) => {
     const { id } = req.params;
     const {
       amount,
+      totalAmcAmount,
       startDate,
       endDate,
       paymentDate,
@@ -363,12 +364,13 @@ export const recordAmcPayment = async (req, res) => {
       paymentStatus = "PAID",
     } = req.body;
 
-    const paidAmount = Number(amount);
-    if (!Number.isFinite(paidAmount) || paidAmount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "amount must be a positive number",
-      });
+    const paidNow = Number(amount) || 0;
+    const totalFee = Number(totalAmcAmount) || paidNow; // fall back to paidNow if not provided
+
+    if (paidNow <= 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "amount must be positive" });
     }
 
     if (!startDate || !endDate) {
@@ -425,16 +427,13 @@ export const recordAmcPayment = async (req, res) => {
       status: "ACTIVE",
       cancelledAt: null,
       cancellationReason: "",
-      notes:
-        notes !== undefined && notes !== null
-          ? String(notes)
-          : customer.amcContract?.notes || "",
+      notes: String(notes || customer.amcContract?.notes || ""),
       lastPaymentDate: normalizedPaymentDate,
-      lastPaymentAmount: paidAmount,
+      lastPaymentAmount: paidNow,
+      totalAmcAmount: totalFee,
+      paidAmcAmount: (customer.amcContract?.paidAmcAmount || 0) + paidNow,
     };
-
     customer.amcContract.status = resolveAmcStatus(customer.amcContract);
-
     await customer.save();
 
     const invoice = await Invoice.create({
@@ -443,15 +442,11 @@ export const recordAmcPayment = async (req, res) => {
       type: "AMC_PAYMENT",
       referenceId: customer._id,
       invoiceDate: normalizedPaymentDate,
-      items: [
-        {
-          name: "AMC Payment",
-          price: paidAmount,
-        },
-      ],
-      totalAmount: paidAmount,
-      paidAmount: paymentStatus === "PAID" ? paidAmount : 0,
-      paymentStatus,
+      items: [{ name: "AMC Payment", price: totalFee }],
+      totalAmount: totalFee,
+      paidAmount: paidNow,
+      paymentStatus:
+        paidNow >= totalFee ? "PAID" : paidNow > 0 ? "PARTIAL" : "PENDING",
     });
 
     return res.status(201).json({

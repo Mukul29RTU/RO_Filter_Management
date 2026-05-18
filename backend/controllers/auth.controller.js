@@ -33,18 +33,18 @@ export const login = async (req, res) => {
       expiresIn: "7d",
     });
 
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: true, // true in production (https)
-      sameSite: "none",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
     // res.cookie("token", token, {
     //   httpOnly: true,
-    //   secure: false,
-    //   sameSite: "lax",
+    //   secure: true, // true in production (https)
+    //   sameSite: "none",
     //   maxAge: 7 * 24 * 60 * 60 * 1000,
     // });
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
     res.status(200).json({
       message: "Login successful",
       success: true,
@@ -75,8 +75,7 @@ export const register = async (req, res) => {
       phone,
       businessName,
       defaultServiceCycleMonths,
-    } =
-      req.body;
+    } = req.body;
 
     if (!firstname || !lastname || !email || !password) {
       return res.status(400).json({
@@ -101,7 +100,8 @@ export const register = async (req, res) => {
 
     if (
       parsedDefaultCycleMonths !== undefined &&
-      (!Number.isFinite(parsedDefaultCycleMonths) || parsedDefaultCycleMonths <= 0)
+      (!Number.isFinite(parsedDefaultCycleMonths) ||
+        parsedDefaultCycleMonths <= 0)
     ) {
       return res.status(400).json({
         message: "defaultServiceCycleMonths must be a positive number",
@@ -180,8 +180,13 @@ export const updateProfile = async (req, res) => {
     }
 
     if (updates.defaultServiceCycleMonths !== undefined) {
-      const parsedDefaultCycleMonths = Number(updates.defaultServiceCycleMonths);
-      if (!Number.isFinite(parsedDefaultCycleMonths) || parsedDefaultCycleMonths <= 0) {
+      const parsedDefaultCycleMonths = Number(
+        updates.defaultServiceCycleMonths,
+      );
+      if (
+        !Number.isFinite(parsedDefaultCycleMonths) ||
+        parsedDefaultCycleMonths <= 0
+      ) {
         return res.status(400).json({
           success: false,
           message: "defaultServiceCycleMonths must be a positive number",
@@ -190,9 +195,13 @@ export const updateProfile = async (req, res) => {
       updates.defaultServiceCycleMonths = parsedDefaultCycleMonths;
     }
 
-    const user = await User.findByIdAndUpdate(req.userId, { $set: updates }, {
-      new: true,
-    }).select("-password");
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $set: updates },
+      {
+        new: true,
+      },
+    ).select("-password");
 
     return res.status(200).json({
       success: true,
@@ -220,7 +229,9 @@ export const updateOwnerProfile = async (req, res) => {
           ? req.body.firstname
           : businessInfo.firstname,
       lastname:
-        req.body.lastname !== undefined ? req.body.lastname : businessInfo.lastname,
+        req.body.lastname !== undefined
+          ? req.body.lastname
+          : businessInfo.lastname,
       phone: req.body.phone !== undefined ? req.body.phone : businessInfo.phone,
       businessName:
         req.body.businessName !== undefined
@@ -229,9 +240,9 @@ export const updateOwnerProfile = async (req, res) => {
       defaultServiceCycleMonths:
         req.body.defaultServiceCycleMonths !== undefined
           ? req.body.defaultServiceCycleMonths
-          : serviceCycle.defaultServiceCycleMonths ??
+          : (serviceCycle.defaultServiceCycleMonths ??
             serviceCycle.serviceCycleMonths ??
-            req.body.serviceCycleMonths,
+            req.body.serviceCycleMonths),
     };
 
     for (const [key, value] of Object.entries(fieldsToUpdate)) {
@@ -249,8 +260,13 @@ export const updateOwnerProfile = async (req, res) => {
     }
 
     if (updates.defaultServiceCycleMonths !== undefined) {
-      const parsedDefaultCycleMonths = Number(updates.defaultServiceCycleMonths);
-      if (!Number.isFinite(parsedDefaultCycleMonths) || parsedDefaultCycleMonths <= 0) {
+      const parsedDefaultCycleMonths = Number(
+        updates.defaultServiceCycleMonths,
+      );
+      if (
+        !Number.isFinite(parsedDefaultCycleMonths) ||
+        parsedDefaultCycleMonths <= 0
+      ) {
         return res.status(400).json({
           success: false,
           message: "defaultServiceCycleMonths must be a positive number",
@@ -269,9 +285,13 @@ export const updateOwnerProfile = async (req, res) => {
       }
     }
 
-    const user = await User.findByIdAndUpdate(req.userId, { $set: updates }, {
-      new: true,
-    }).select("-password");
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $set: updates },
+      {
+        new: true,
+      },
+    ).select("-password");
 
     return res.status(200).json({
       success: true,
