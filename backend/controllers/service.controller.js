@@ -103,6 +103,7 @@ export const createService = async (req, res) => {
       replacedParts = [],
       serviceCharge = 0,
       chargePaymentStatus = "PAID",
+      chargePaidAmount: rawChargePaid,
     } = req.body;
 
     if (!customerId) {
@@ -149,12 +150,16 @@ export const createService = async (req, res) => {
       serviceCharge,
       totalServiceAmount,
       chargePaymentStatus,
-      chargePaidAmount:
-        chargePaymentStatus === "PAID"
-          ? totalServiceAmount
-          : chargePaymentStatus === "PARTIAL"
-            ? totalServiceAmount / 2
-            : 0,
+      chargePaidAmount: (() => {
+        if (chargePaymentStatus === "PAID") return totalServiceAmount;
+        if (chargePaymentStatus === "PARTIAL") {
+          const p = Number(rawChargePaid);
+          return Number.isFinite(p) && p > 0
+            ? Math.min(p, totalServiceAmount)
+            : 0;
+        }
+        return 0;
+      })(),
     });
 
     // 3️⃣ 🔻 Deduct parts inventory (DO NOT BLOCK SERVICE)
@@ -227,12 +232,16 @@ export const createService = async (req, res) => {
         referenceId: service._id,
         items: invoiceItems,
         totalAmount: totalServiceAmount,
-        paidAmount:
-          chargePaymentStatus === "PAID"
-            ? totalServiceAmount
-            : chargePaymentStatus === "PARTIAL"
-              ? totalServiceAmount / 2
-              : 0,
+        paidAmount: (() => {
+          if (chargePaymentStatus === "PAID") return totalServiceAmount;
+          if (chargePaymentStatus === "PARTIAL") {
+            const p = Number(rawChargePaid);
+            return Number.isFinite(p) && p > 0
+              ? Math.min(p, totalServiceAmount)
+              : 0;
+          }
+          return 0;
+        })(),
         paymentStatus: chargePaymentStatus,
         invoiceDate: actualServiceDate,
       });

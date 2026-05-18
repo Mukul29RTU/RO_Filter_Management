@@ -56,6 +56,7 @@ const AddService = () => {
   const [affectsServiceCycle, setAffectsServiceCycle] = useState(true);
   const [serviceCharge, setServiceCharge] = useState("");
   const [chargePaymentStatus, setChargePaymentStatus] = useState("PAID");
+  const [chargePaidAmount, setChargePaidAmount] = useState("");
   const [parts, setParts] = useState([
     { partName: "", price: "", showDropdown: false },
   ]);
@@ -91,6 +92,10 @@ const AddService = () => {
         serviceDate,
         serviceType,
         chargePaymentStatus,
+        chargePaidAmount:
+          chargePaymentStatus === "PARTIAL"
+            ? Number(chargePaidAmount)
+            : undefined,
         affectsServiceCycle,
         serviceCharge: Number(serviceCharge) || 0,
         replacedParts: parts
@@ -167,6 +172,19 @@ const AddService = () => {
                 <option value="PENDING">Pending</option>
               </select>
             </div>
+            {chargePaymentStatus === "PARTIAL" && (
+              <div className="form-section">
+                <label className="service-label">Amount Paid Now (₹)</label>
+                <input
+                  className="service-input"
+                  type="number"
+                  placeholder="How much was collected"
+                  value={chargePaidAmount}
+                  onChange={(e) => setChargePaidAmount(e.target.value)}
+                  min="1"
+                />
+              </div>
+            )}
             <label className="checkbox-group">
               <input
                 type="checkbox"

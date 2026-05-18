@@ -913,3 +913,76 @@ export const getCustomerById = async (req, res) => {
     });
   }
 };
+export const updateAmcPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { additionalPaidAmount } = req.body;
+
+    const extra = Number(additionalPaidAmount);
+    if (!Number.isFinite(extra) || extra <= 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid amount" });
+    }
+
+    const customer = await Customer.findOne({
+      _id: id,
+      userId: req.userId,
+      isActive: true,
+    });
+    if (!customer) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Customer not found" });
+    }
+    if (!customer.amcContract) {
+      return res
+        .status(400)
+        .json({ success: false, message: "No AMC contract found" });
+    }
+
+    const currentPaid = customer.amcContract.paidAmcAmount || 0;
+    const totalFee = customer.amcContract.totalAmcAmount || 0;
+    const newPaid = Math.min(
+      currentPaid + extra,
+      totalFee || currentPaid + extra,
+    );
+
+    customer.amcContract.paidAmcAmount = newPaid;
+    customer.amcContract.lastPaymentAmount = extra;
+    customer.amcContract.lastPaymentDate = new Date();
+
+    await customer.save();
+
+    // Create invoice for this additional payment
+    await Invoice.create({
+      userId: req.userId,
+      customerId: customer._id,
+      type: "AMC_PAYMENT",
+      referenceId: customer._id,
+      invoiceDate: new Date(),
+      items: [{ name: "AMC Payment (Additional)", price: extra }],
+      totalAmount: extra,
+      paidAmount: extra,
+      paymentStatus: "PAID",
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "AMC payment updated",
+      amcContract: {
+        ...customer.amcContract.toObject(),
+        status: resolveAmcStatus(customer.amcContract),
+        remainingAmount: Math.max(
+          0,
+          (customer.amcContract.totalAmcAmount || 0) - newPaid,
+        ),
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to update AMC payment" });
+  }
+};

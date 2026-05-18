@@ -22,10 +22,14 @@ const CustomerDetail = () => {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
-  // AMC modal state
+  // AMC modal state //fix 1
   const [showAmcModal, setShowAmcModal] = useState(false);
   const [amcLoading, setAmcLoading] = useState(false);
   const [amcError, setAmcError] = useState("");
+  const [showAmcUpdateModal, setShowAmcUpdateModal] = useState(false);
+  const [amcUpdateAmount, setAmcUpdateAmount] = useState("");
+  const [amcUpdateLoading, setAmcUpdateLoading] = useState(false);
+  const [amcUpdateError, setAmcUpdateError] = useState("");
   const [amcForm, setAmcForm] = useState({
     amount: "",
     totalAmcAmount: "",
@@ -244,7 +248,7 @@ const CustomerDetail = () => {
       setAmcLoading(true);
       await api.patch(`/api/customers/${id}`, {
         customerType: isServiceOnly ? "SERVICE_ONLY" : "REGULAR",
-        amcContract: null,
+        amcContract: null, //fix2
       });
       await loadData();
     } catch (err) {
@@ -253,7 +257,27 @@ const CustomerDetail = () => {
       setAmcLoading(false);
     }
   };
-
+  const handleUpdateAmcPayment = async () => {
+    const val = Number(amcUpdateAmount);
+    if (!val || val <= 0) {
+      setAmcUpdateError("Enter a valid amount");
+      return;
+    }
+    try {
+      setAmcUpdateLoading(true);
+      setAmcUpdateError("");
+      await api.patch(`/api/customers/${id}/amc-payment`, {
+        additionalPaidAmount: val,
+      });
+      setShowAmcUpdateModal(false);
+      setAmcUpdateAmount("");
+      await loadData();
+    } catch (err) {
+      setAmcUpdateError(err?.message || "Failed to update AMC payment");
+    } finally {
+      setAmcUpdateLoading(false);
+    }
+  };
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loading) return <Loading />;
@@ -510,12 +534,54 @@ const CustomerDetail = () => {
               <span className="info-label">Days Left</span>
               <span className="info-value">{amcDaysLeft}</span>
             </div>
+            {/* fix 3 */}
+            <div className="info-row">
+              <span className="info-label">Total AMC Fee</span>
+              <span className="info-value">
+                {customer?.amcContract?.totalAmcAmount
+                  ? `₹${customer.amcContract.totalAmcAmount.toLocaleString("en-IN")}`
+                  : "-"}
+              </span>
+            </div>
 
             <div className="info-row">
-              <span className="info-label">Last AMC Payment</span>
+              <span className="info-label">Paid So Far</span>
               <span className="info-value">
-                {lastAmcPayment.amount ? `₹${lastAmcPayment.amount}` : "-"} /{" "}
-                {formatDate(lastAmcPayment.date)}
+                {customer?.amcContract?.paidAmcAmount != null
+                  ? `₹${customer.amcContract.paidAmcAmount.toLocaleString("en-IN")}`
+                  : "-"}
+              </span>
+            </div>
+
+            <div className="info-row">
+              <span className="info-label">Remaining</span>
+              <span
+                className="info-value"
+                style={{
+                  color:
+                    (customer?.amcContract?.totalAmcAmount || 0) -
+                      (customer?.amcContract?.paidAmcAmount || 0) >
+                    0
+                      ? "#dc2626"
+                      : "#16a34a",
+                  fontWeight: 600,
+                }}
+              >
+                ₹
+                {Math.max(
+                  0,
+                  (customer?.amcContract?.totalAmcAmount || 0) -
+                    (customer?.amcContract?.paidAmcAmount || 0),
+                ).toLocaleString("en-IN")}
+              </span>
+            </div>
+
+            <div className="info-row">
+              <span className="info-label">Last Payment</span>
+              <span className="info-value">
+                {lastAmcPayment.amount
+                  ? `₹${lastAmcPayment.amount.toLocaleString("en-IN")} on ${formatDate(lastAmcPayment.date)}`
+                  : "-"}
               </span>
             </div>
 
@@ -524,9 +590,16 @@ const CustomerDetail = () => {
                 {amcStatus === "NOT STARTED" ? "Start AMC" : "Renew AMC"}
               </button>
 
-              <button className="btn btn-outline" onClick={openAmcModal}>
-                Record AMC Payment
-              </button>
+              {customer?.amcContract?.totalAmcAmount > 0 &&
+                (customer.amcContract.paidAmcAmount || 0) <
+                  customer.amcContract.totalAmcAmount && (
+                  <button
+                    className="btn btn-outline"
+                    onClick={() => setShowAmcUpdateModal(true)}
+                  >
+                    Update AMC Payment
+                  </button>
+                )}
 
               <button
                 className="btn btn-outline"
@@ -891,6 +964,111 @@ const CustomerDetail = () => {
                   ).toLocaleString("en-IN")}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* //fix3 */}
+      {/* ── UPDATE AMC PAYMENT MODAL ─────────────────────────────────────── */}
+      {showAmcUpdateModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => !amcUpdateLoading && setShowAmcUpdateModal(false)}
+        >
+          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Update AMC Payment</h3>
+              <button
+                className="close-btn"
+                onClick={() => setShowAmcUpdateModal(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div
+                style={{
+                  background: "#f0fdf4",
+                  border: "1px solid #86efac",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  marginBottom: 14,
+                  fontSize: 14,
+                }}
+              >
+                <div>
+                  Total fee:{" "}
+                  <strong>
+                    ₹
+                    {(
+                      customer?.amcContract?.totalAmcAmount || 0
+                    ).toLocaleString("en-IN")}
+                  </strong>
+                </div>
+                <div>
+                  Paid so far:{" "}
+                  <strong>
+                    ₹
+                    {(customer?.amcContract?.paidAmcAmount || 0).toLocaleString(
+                      "en-IN",
+                    )}
+                  </strong>
+                </div>
+                <div style={{ color: "#dc2626" }}>
+                  Remaining:{" "}
+                  <strong>
+                    ₹
+                    {Math.max(
+                      0,
+                      (customer?.amcContract?.totalAmcAmount || 0) -
+                        (customer?.amcContract?.paidAmcAmount || 0),
+                    ).toLocaleString("en-IN")}
+                  </strong>
+                </div>
+              </div>
+
+              {amcUpdateError && (
+                <div className="delete-error" style={{ marginBottom: 12 }}>
+                  {amcUpdateError}
+                </div>
+              )}
+
+              <label
+                style={{ display: "block", marginBottom: 4, fontWeight: 500 }}
+              >
+                Amount Received Now (₹)
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={amcUpdateAmount}
+                onChange={(e) => setAmcUpdateAmount(e.target.value)}
+                placeholder="Enter amount collected"
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #ccc",
+                  marginBottom: 16,
+                }}
+              />
+
+              <div className="delete-actions">
+                <button
+                  className="btn btn-outline"
+                  onClick={() => setShowAmcUpdateModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleUpdateAmcPayment}
+                  disabled={amcUpdateLoading}
+                >
+                  {amcUpdateLoading ? "Saving..." : "Record Payment"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -119,8 +119,7 @@ const customerSchema = new mongoose.Schema(
       enum: ["PAID", "PARTIAL", "UNPAID"],
       default: "UNPAID",
     },
-    totalAmcAmount: { type: Number, default: 0 },
-    paidAmcAmount: { type: Number, default: 0 },
+
     filters: {
       type: [filterSchema],
       default: [],
