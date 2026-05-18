@@ -118,3 +118,64 @@ export const getDashboardSummary = async (req, res) => {
     });
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADD THIS FUNCTION to your existing dashboard controller file
+// Route: GET /api/dashboard/pending-breakdown
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getPendingBreakdown = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const now = new Date();
+
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+    );
+
+    // Fetch this month's invoices that still have an outstanding balance,
+    // and populate customer name + phone in one query.
+    const invoices = await Invoice.find({
+      userId,
+      invoiceDate: { $gte: startOfMonth, $lte: endOfMonth },
+      $expr: { $gt: ["$totalAmount", "$paidAmount"] }, // pending > 0
+    })
+      .populate("customerId", "name phone") // adjust field name if your Invoice schema uses a different ref key
+      .lean();
+
+    const pending = invoices.map((inv) => ({
+      invoiceId: inv._id,
+      customerId: inv.customerId?._id,
+      customerName: inv.customerId?.name || "Unknown",
+      phone: inv.customerId?.phone || null,
+      invoiceType: inv.type, // "FILTER_SALE" | "SERVICE" | "AMC"
+      totalAmount: inv.totalAmount,
+      paidAmount: inv.paidAmount ?? 0,
+      pendingAmount: inv.totalAmount - (inv.paidAmount ?? 0),
+      invoiceDate: inv.invoiceDate,
+    }));
+
+    // Sort by highest pending first
+    pending.sort((a, b) => b.pendingAmount - a.pendingAmount);
+
+    res.status(200).json({ success: true, pending });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to load pending breakdown",
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Also add to your dashboard ROUTES file:
+//   import { getDashboardSummary, getPendingBreakdown } from "../controllers/dashboard.controller.js";
+//   router.get("/pending-breakdown", protect, getPendingBreakdown);
+// ─────────────────────────────────────────────────────────────────────────────
