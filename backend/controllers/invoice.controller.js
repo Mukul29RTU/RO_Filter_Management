@@ -1,7 +1,61 @@
 import { Invoice } from "../models/invoice.model.js";
 import { Customer } from "../models/customer.model.js";
 import { Service } from "../models/service.model.js";
+import { User } from "../models/user.model.js";
+import { addMonths } from "../utils/date.utils.js";
 import mongoose from "mongoose";
+
+// Recompute next/last service dates after a service is removed
+const recomputeServiceSchedule = async (customer) => {
+  const owner = await User.findById(customer.userId).select(
+    "defaultServiceCycleMonths",
+  );
+  const cycleMths =
+    customer.serviceCycleMonthsOverride ||
+    owner?.defaultServiceCycleMonths ||
+    6;
+  const baseline = customer.installationDate
+    ? new Date(customer.installationDate)
+    : new Date();
+
+  const history = await Service.find({
+    userId: customer.userId,
+    customerId: customer._id,
+    affectsServiceCycle: true,
+  })
+    .sort({ serviceDate: 1 })
+    .select("serviceDate replacedParts")
+    .lean();
+
+  const filters = (customer.filters || []).map((f) => ({
+    ...f.toObject(),
+    lastChangedDate: baseline,
+  }));
+
+  history.forEach((svc) => {
+    const d = new Date(svc.serviceDate);
+    filters.forEach((f) => {
+      if (svc.replacedParts?.some((p) => p.partName === f.name))
+        f.lastChangedDate = d;
+    });
+  });
+
+  const latest = history[history.length - 1] || null;
+  customer.filters = filters;
+  customer.lastServiceDate = latest ? new Date(latest.serviceDate) : null;
+
+  const nextDates = filters.map((f) =>
+    addMonths(f.lastChangedDate, f.intervalMonths),
+  );
+  customer.nextServiceDate =
+    nextDates.length > 0
+      ? new Date(Math.min(...nextDates))
+      : customer.lastServiceDate
+        ? addMonths(customer.lastServiceDate, cycleMths)
+        : addMonths(baseline, cycleMths);
+
+  await customer.save();
+};
 
 export const getInvoices = async (req, res) => {
   try {
@@ -153,7 +207,12 @@ export const deleteInvoice = async (req, res) => {
         message: "Invoice customer mismatch or missing. Cannot delete safely.",
       });
     }
+    ///////
 
+    // If this is a SERVICE invoice and a linked service record still exists,
+    // cascade-delete the service too — same way deleteService already deletes
+    // its invoice. This makes the relationship symmetrical: you can approach
+    // from either direction.
     if (invoice.type === "SERVICE") {
       const linkedService = await Service.findOne({
         _id: invoice.referenceId,
@@ -162,14 +221,14 @@ export const deleteInvoice = async (req, res) => {
       });
 
       if (linkedService) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "This invoice is linked to a service record. Delete the service first.",
-        });
+        await Service.deleteOne({ _id: linkedService._id });
+        // Recompute the customer's next service due date now that this
+        // service is gone — same as what deleteService() does.
+        await recomputeServiceSchedule(customer);
       }
     }
 
+    //////
     if (
       ["FILTER_SALE", "AMC_PAYMENT"].includes(invoice.type) &&
       String(invoice.referenceId) !== String(invoice.customerId)
@@ -196,7 +255,8 @@ export const deleteInvoice = async (req, res) => {
       const isLatestPaymentRecord =
         new Date(customer.amcContract.lastPaymentDate).getTime() ===
           new Date(invoice.invoiceDate).getTime() &&
-        Number(customer.amcContract.lastPaymentAmount) === Number(invoice.paidAmount);
+        Number(customer.amcContract.lastPaymentAmount) ===
+          Number(invoice.paidAmount);
 
       if (isLatestPaymentRecord) {
         return res.status(409).json({

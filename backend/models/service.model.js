@@ -11,7 +11,7 @@ const replacedPartSchema = new mongoose.Schema(
       default: 0,
     },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const serviceSchema = new mongoose.Schema(
@@ -34,7 +34,7 @@ const serviceSchema = new mongoose.Schema(
 
     serviceType: {
       type: String,
-      enum: ["SCHEDULED", "EARLY", "EMERGENCY"],
+      enum: ["SCHEDULED", "EARLY", "EMERGENCY", "AMC_SERVICE"],
       default: "SCHEDULED",
     },
 
@@ -61,13 +61,21 @@ const serviceSchema = new mongoose.Schema(
     nextServiceDate: {
       type: Date,
     },
-
+    chargePaymentStatus: {
+      type: String,
+      enum: ["PAID", "PARTIAL", "PENDING"],
+      default: "PAID",
+    },
+    chargePaidAmount: {
+      type: Number,
+      default: 0,
+    },
     invoiceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Invoice",
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export const Service = mongoose.model("Service", serviceSchema);

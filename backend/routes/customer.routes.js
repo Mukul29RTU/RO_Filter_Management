@@ -7,6 +7,7 @@ import {
   deleteCustomer,
   getCustomers,
   getCustomerById,
+  updateAmcPayment,
 } from "../controllers/customer.controller.js";
 import { isAuthenticated } from "../middlewares/auth.middleware.js";
 
@@ -20,6 +21,6 @@ router.patch("/:id", isAuthenticated, updateCustomer);
 router.delete("/:id", isAuthenticated, deleteCustomer);
 router.patch("/:id/payment", isAuthenticated, updateCustomerPayment);
 router.post("/:id/amc-payment", isAuthenticated, recordAmcPayment);
-
+router.patch("/:id/amc-payment", isAuthenticated, updateAmcPayment);
 router.get("/", isAuthenticated, getCustomers);
 export default router;

@@ -41,7 +41,11 @@ const resolveAmcStatus = (amcContract) => {
 
 const normalizeAmcContract = (customerType, amcContractInput) => {
   if (customerType !== "AMC") return null;
-  if (!amcContractInput || !amcContractInput.startDate || !amcContractInput.endDate) {
+  if (
+    !amcContractInput ||
+    !amcContractInput.startDate ||
+    !amcContractInput.endDate
+  ) {
     return null;
   }
 
@@ -84,41 +88,68 @@ export const createCustomer = async (req, res) => {
       roBodyType,
       customerType = "REGULAR",
       amcContract,
+      amcPaymentAmount,
+      amcPaymentStatus = "PAID",
       installationDate,
       filterPrice = 0,
-      initialPaidAmount = 0, // ✅ match frontend
+      initialPaidAmount = 0,
       lastServiceDate,
       filters,
       serviceCycleMonthsOverride,
       location,
     } = req.body;
 
-    // 1️⃣ Basic validation
-    if (!name || !phone || !roModel || !installationDate) {
+    // ── Validation — rules differ by customer type ────────────────────────────
+    //
+    //   REGULAR      → roModel + installationDate required (bought machine from us)
+    //   AMC          → amcContract startDate + endDate required (machine may be external)
+    //   SERVICE_ONLY → only name + phone required (they own their machine)
+
+    if (!name || !phone) {
       return res.status(400).json({
         success: false,
-        message: "Required fields missing",
+        message: "Name and phone are required for all customer types",
       });
     }
 
-    if (
-      customerType === "AMC" &&
-      (!amcContract || !amcContract.startDate || !amcContract.endDate)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "AMC customers require contract startDate and endDate",
-      });
+    if (customerType === "REGULAR") {
+      if (!roModel) {
+        return res.status(400).json({
+          success: false,
+          message: "RO model is required for Regular customers",
+        });
+      }
+      if (!installationDate) {
+        return res.status(400).json({
+          success: false,
+          message: "Installation date is required for Regular customers",
+        });
+      }
     }
 
-    // Convert safely
-    const price = Number(filterPrice) || 0;
-    const paid = Number(initialPaidAmount) || 0;
+    if (customerType === "AMC") {
+      if (!amcContract || !amcContract.startDate || !amcContract.endDate) {
+        return res.status(400).json({
+          success: false,
+          message: "AMC customers require contract startDate and endDate",
+        });
+      }
+    }
 
-    const installDateObj = new Date(installationDate);
+    // ── Safely convert dates ──────────────────────────────────────────────────
+    // installationDate only exists for REGULAR — guard against undefined
+    const installDateObj = installationDate ? new Date(installationDate) : null;
     const serviceDateObj = lastServiceDate ? new Date(lastServiceDate) : null;
+
+    // ── Financial values (REGULAR only) ───────────────────────────────────────
+    // AMC and SERVICE_ONLY never paid for a machine through us
+    const price = customerType === "REGULAR" ? Number(filterPrice) || 0 : 0;
+    const paid =
+      customerType === "REGULAR" ? Number(initialPaidAmount) || 0 : 0;
+
+    // ── Service cycle override ────────────────────────────────────────────────
     const normalizedServiceCycleOverride =
-      serviceCycleMonthsOverride === undefined || serviceCycleMonthsOverride === null
+      serviceCycleMonthsOverride == null
         ? null
         : Number(serviceCycleMonthsOverride);
 
@@ -138,8 +169,9 @@ export const createCustomer = async (req, res) => {
       ownerDefaultCycleMonths: req.user?.defaultServiceCycleMonths,
     });
 
-    // 2️⃣ Check RO model stock (skip for SERVICE_ONLY — they own their machine)
-    if (customerType !== "SERVICE_ONLY") {
+    // ── 2️⃣ Inventory deduct ────────────────────────────────────────────────────
+    // Only REGULAR customers bought the machine from us — skip for all others
+    if (customerType === "REGULAR" && roModel) {
       const roStock = await ROModelInventory.findOne({
         userId,
         modelName: roModel,
@@ -156,77 +188,94 @@ export const createCustomer = async (req, res) => {
       await roStock.save();
     }
 
-    // 3️⃣ Initialize filters
+    // ── 3️⃣ Initialize filters ─────────────────────────────────────────────────
+    // Baseline date: last service → installation → today (in that priority)
+    const baselineDate = serviceDateObj || installDateObj || new Date();
+
     const initializedFilters = (filters || []).map((f) => ({
       name: f.name,
       intervalMonths: f.intervalMonths,
-      lastChangedDate: serviceDateObj || installDateObj,
+      lastChangedDate: baselineDate,
     }));
 
-    // 4️⃣ Decide nextServiceDate
+    // ── 4️⃣ Next service date ──────────────────────────────────────────────────
     let nextServiceDate = null;
 
     if (serviceDateObj) {
       nextServiceDate = addMonths(serviceDateObj, resolvedServiceCycleMonths);
-    } else {
-      const now = new Date();
-      const diffDays = (now - installDateObj) / (1000 * 60 * 60 * 24);
-
+    } else if (installDateObj) {
+      const diffDays = (new Date() - installDateObj) / (1000 * 60 * 60 * 24);
       if (diffDays <= 30) {
         nextServiceDate = addMonths(installDateObj, resolvedServiceCycleMonths);
       }
     }
+    // For AMC / SERVICE_ONLY with no installDate, nextServiceDate stays null
+    // and will be set after their first service record is added
 
-    // 5️⃣ Decide payment status
+    // ── 5️⃣ Payment status (REGULAR only) ─────────────────────────────────────
     let paymentStatus = "UNPAID";
-
-    if (paid >= price && price > 0) {
-      paymentStatus = "PAID";
-    } else if (paid > 0 && paid < price) {
-      paymentStatus = "PARTIAL";
+    if (price > 0) {
+      if (paid >= price) paymentStatus = "PAID";
+      else if (paid > 0) paymentStatus = "PARTIAL";
     }
 
-    // 6️⃣ Create customer
+    // ── 6️⃣ Create customer ────────────────────────────────────────────────────
     const customer = await Customer.create({
       userId,
       name,
       phone,
       address,
-      roModel,
-      roBodyType,
+      roModel: roModel || "",
+      roBodyType: roBodyType || "",
       customerType,
       amcContract: normalizeAmcContract(customerType, amcContract),
-      installationDate: installDateObj,
+      installationDate: installDateObj, // null for AMC / SERVICE_ONLY
       serviceCycleMonthsOverride: normalizedServiceCycleOverride,
-      filterPrice: price,
-      filterPaidAmount: paid,
-      filterPaymentStatus: paymentStatus,
+      filterPrice: price, // 0 for AMC / SERVICE_ONLY
+      filterPaidAmount: paid, // 0 for AMC / SERVICE_ONLY
+      filterPaymentStatus: paymentStatus, // UNPAID for AMC / SERVICE_ONLY
       lastServiceDate: serviceDateObj,
       nextServiceDate,
       filters: initializedFilters,
       location,
     });
 
-    // 7️⃣ Create FILTER_SALE invoice
-    if (price > 0) {
+    // ── 7️⃣ Create FILTER_SALE invoice (REGULAR + price > 0 only) ─────────────
+    // AMC and SERVICE_ONLY never bought a machine from us — no sale invoice
+    if (customerType === "REGULAR" && price > 0) {
       await Invoice.create({
         userId,
         customerId: customer._id,
         type: "FILTER_SALE",
         referenceId: customer._id,
-        invoiceDate: installDateObj, // ✅ correct business date
-        items: [
-          {
-            name: `RO Filter (${roModel})`,
-            price: price,
-          },
-        ],
+        invoiceDate: installDateObj,
+        items: [{ name: `RO Filter (${roModel})`, price }],
         totalAmount: price,
         paidAmount: paid,
         paymentStatus,
       });
     }
+    // 8️⃣ Create AMC_PAYMENT invoice if payment was collected at registration
+    const amcPaid = Number(amcPaymentAmount) || 0;
+    if (customerType === "AMC" && amcPaid > 0) {
+      await Invoice.create({
+        userId,
+        customerId: customer._id,
+        type: "AMC_PAYMENT",
+        referenceId: customer._id,
+        invoiceDate: new Date(),
+        items: [{ name: "AMC Registration Payment", price: amcPaid }],
+        totalAmount: amcPaid,
+        paidAmount: amcPaymentStatus === "PAID" ? amcPaid : 0,
+        paymentStatus: amcPaymentStatus,
+      });
 
+      // Update the contract's last payment fields
+      await Customer.findByIdAndUpdate(customer._id, {
+        "amcContract.lastPaymentAmount": amcPaid,
+        "amcContract.lastPaymentDate": new Date(),
+      });
+    }
     return res.status(201).json({
       success: true,
       message: "Customer created successfully",
@@ -307,18 +356,21 @@ export const recordAmcPayment = async (req, res) => {
     const { id } = req.params;
     const {
       amount,
+      totalAmcAmount,
       startDate,
       endDate,
       paymentDate,
       notes = "",
+      paymentStatus = "PAID",
     } = req.body;
 
-    const paidAmount = Number(amount);
-    if (!Number.isFinite(paidAmount) || paidAmount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "amount must be a positive number",
-      });
+    const paidNow = Number(amount) || 0;
+    const totalFee = Number(totalAmcAmount) || paidNow; // fall back to paidNow if not provided
+
+    if (paidNow <= 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "amount must be positive" });
     }
 
     if (!startDate || !endDate) {
@@ -330,7 +382,9 @@ export const recordAmcPayment = async (req, res) => {
 
     const normalizedStartDate = new Date(startDate);
     const normalizedEndDate = new Date(endDate);
-    const normalizedPaymentDate = paymentDate ? new Date(paymentDate) : new Date();
+    const normalizedPaymentDate = paymentDate
+      ? new Date(paymentDate)
+      : new Date();
 
     if (
       Number.isNaN(normalizedStartDate.getTime()) ||
@@ -363,7 +417,9 @@ export const recordAmcPayment = async (req, res) => {
       });
     }
 
-    customer.customerType = "AMC";
+    if (customer.customerType === "REGULAR") {
+      customer.customerType = "AMC";
+    }
     customer.amcContract = {
       ...(customer.amcContract ? customer.amcContract.toObject() : {}),
       startDate: normalizedStartDate,
@@ -371,16 +427,13 @@ export const recordAmcPayment = async (req, res) => {
       status: "ACTIVE",
       cancelledAt: null,
       cancellationReason: "",
-      notes:
-        notes !== undefined && notes !== null
-          ? String(notes)
-          : customer.amcContract?.notes || "",
+      notes: String(notes || customer.amcContract?.notes || ""),
       lastPaymentDate: normalizedPaymentDate,
-      lastPaymentAmount: paidAmount,
+      lastPaymentAmount: paidNow,
+      totalAmcAmount: totalFee,
+      paidAmcAmount: (customer.amcContract?.paidAmcAmount || 0) + paidNow,
     };
-
     customer.amcContract.status = resolveAmcStatus(customer.amcContract);
-
     await customer.save();
 
     const invoice = await Invoice.create({
@@ -389,15 +442,11 @@ export const recordAmcPayment = async (req, res) => {
       type: "AMC_PAYMENT",
       referenceId: customer._id,
       invoiceDate: normalizedPaymentDate,
-      items: [
-        {
-          name: "AMC Payment",
-          price: paidAmount,
-        },
-      ],
-      totalAmount: paidAmount,
-      paidAmount,
-      paymentStatus: "PAID",
+      items: [{ name: "AMC Payment", price: totalFee }],
+      totalAmount: totalFee,
+      paidAmount: paidNow,
+      paymentStatus:
+        paidNow >= totalFee ? "PAID" : paidNow > 0 ? "PARTIAL" : "PENDING",
     });
 
     return res.status(201).json({
@@ -471,9 +520,14 @@ export const updateCustomer = async (req, res) => {
       }
     }
 
-    if (req.body.amcContract !== undefined || req.body.customerType !== undefined) {
+    if (
+      req.body.amcContract !== undefined ||
+      req.body.customerType !== undefined
+    ) {
       const effectiveType =
-        updates.customerType || req.body.customerType || existingCustomer.customerType;
+        updates.customerType ||
+        req.body.customerType ||
+        existingCustomer.customerType;
       const inputContract =
         req.body.amcContract !== undefined
           ? req.body.amcContract
@@ -514,7 +568,7 @@ export const updateCustomer = async (req, res) => {
 
 export const deleteCustomer = async (req, res) => {
   try {
-   const { id } = req.params;
+    const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -523,7 +577,9 @@ export const deleteCustomer = async (req, res) => {
       });
     }
 
-    const mode = String(req.body?.mode || "soft").toLowerCase();
+    const mode = String(
+      req.query?.mode || req.body?.mode || "soft",
+    ).toLowerCase();
 
     if (!["soft", "hard"].includes(mode)) {
       return res.status(400).json({
@@ -553,8 +609,6 @@ export const deleteCustomer = async (req, res) => {
         });
       }
 
-      // Use findByIdAndUpdate to bypass full document validation
-      // (avoids crashes on old customers with amcContract.status = null)
       await Customer.findByIdAndUpdate(id, { $set: { isActive: false } });
 
       return res.status(200).json({
@@ -564,17 +618,31 @@ export const deleteCustomer = async (req, res) => {
       });
     }
 
-    //
     const [servicesResult, invoicesResult] = await Promise.all([
-      Service.deleteMany({ userId: req.userId, customerId: customer._id }),
-      Invoice.deleteMany({ userId: req.userId, customerId: customer._id }),
+      Service.deleteMany({
+        userId: req.userId,
+        customerId: customer._id,
+      }),
+      Invoice.deleteMany({
+        userId: req.userId,
+        customerId: customer._id,
+      }),
     ]);
 
     if (customer.roModel && customer.customerType !== "SERVICE_ONLY") {
       await ROModelInventory.findOneAndUpdate(
-        { userId: req.userId, modelName: customer.roModel },
-        { $inc: { quantity: 1 }, $setOnInsert: { isActive: true } },
-        { upsert: true, new: true },
+        {
+          userId: req.userId,
+          modelName: customer.roModel,
+        },
+        {
+          $inc: { quantity: 1 },
+          $setOnInsert: { isActive: true },
+        },
+        {
+          upsert: true,
+          new: true,
+        },
       );
     }
 
@@ -591,6 +659,7 @@ export const deleteCustomer = async (req, res) => {
     });
   } catch (error) {
     console.error(error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to delete customer",
@@ -605,7 +674,6 @@ export const deleteCustomer = async (req, res) => {
 
 export const getCustomers = async (req, res) => {
   try {
-    // console.log("getting all customers");
     const {
       search,
       status = "active",
@@ -613,26 +681,27 @@ export const getCustomers = async (req, res) => {
       serviceStatus,
       customerType,
       amcStatus,
+      page = 1,
+      limit = 20,
     } = req.query;
 
-    const query = {
-      userId: req.userId,
-    };
+    const currentPage = parseInt(page) || 1;
+    const perPage = Math.min(parseInt(limit) || 20, 500); // cap at 100
+    const skip = (currentPage - 1) * perPage;
 
-    // active / inactive filter
+    const query = { userId: req.userId };
+
+    // Status filter
     if (status === "active") query.isActive = true;
     if (status === "inactive") query.isActive = false;
 
-    // payment status filter
-    if (paymentStatus) {
-      query.filterPaymentStatus = paymentStatus;
-    }
+    // Payment status filter
+    if (paymentStatus) query.filterPaymentStatus = paymentStatus;
 
-    if (customerType) {
-      query.customerType = customerType;
-    }
+    // Customer type filter
+    if (customerType) query.customerType = customerType;
 
-    // search by name or phone
+    // Search by name or phone
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: "i" } },
@@ -640,9 +709,50 @@ export const getCustomers = async (req, res) => {
       ];
     }
 
-    const customers = await Customer.find(query).sort({ createdAt: -1 });
+    // serviceStatus filter — translated to DB-level date comparisons
+    // so pagination counts are accurate without loading all records
+    if (serviceStatus) {
+      const today = new Date();
+      const tenDaysFromNow = new Date(
+        today.getTime() + 10 * 24 * 60 * 60 * 1000,
+      );
+
+      if (serviceStatus === "OVERDUE") {
+        query.nextServiceDate = { $lt: today };
+      } else if (serviceStatus === "UPCOMING") {
+        query.nextServiceDate = { $gte: today, $lte: tenDaysFromNow };
+      } else if (serviceStatus === "OK") {
+        query.nextServiceDate = { $gt: tenDaysFromNow };
+      } else if (serviceStatus === "NONE") {
+        query.nextServiceDate = { $exists: false };
+      }
+    }
+
+    // amcStatus filter — translate to DB-level query
+    if (amcStatus) {
+      const today = new Date();
+      if (amcStatus === "ACTIVE") {
+        query["amcContract.status"] = "ACTIVE";
+        query["amcContract.endDate"] = { $gte: today };
+      } else if (amcStatus === "EXPIRED") {
+        query["amcContract.endDate"] = { $lt: today };
+      } else if (amcStatus === "CANCELLED") {
+        query["amcContract.status"] = "CANCELLED";
+      }
+    }
+
+    // Get total count first (needed for pagination metadata)
+    const totalItems = await Customer.countDocuments(query);
+    const totalPages = Math.ceil(totalItems / perPage);
+
+    // Paginated DB query
+    const customers = await Customer.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(perPage);
 
     const today = new Date();
+    const tenDaysFromNow = new Date(today.getTime() + 10 * 24 * 60 * 60 * 1000);
 
     const formattedCustomers = customers.map((c) => {
       let serviceStatusComputed = "NONE";
@@ -652,11 +762,11 @@ export const getCustomers = async (req, res) => {
       if (c.nextServiceDate) {
         const diff =
           (new Date(c.nextServiceDate) - today) / (1000 * 60 * 60 * 24);
-
         daysRemaining = Math.ceil(diff);
 
         if (daysRemaining < 0) serviceStatusComputed = "OVERDUE";
-        else if (daysRemaining <= 10) serviceStatusComputed = "UPCOMING";
+        else if (new Date(c.nextServiceDate) <= tenDaysFromNow)
+          serviceStatusComputed = "UPCOMING";
         else serviceStatusComputed = "OK";
       }
 
@@ -671,35 +781,25 @@ export const getCustomers = async (req, res) => {
         amcContract: c.amcContract
           ? { ...c.amcContract.toObject(), status: amcStatusComputed }
           : null,
-
         filterPaymentStatus: c.filterPaymentStatus,
         filterPrice: c.filterPrice,
         filterPaidAmount: c.filterPaidAmount,
-
         nextServiceDate: c.nextServiceDate,
         serviceStatus: serviceStatusComputed,
         daysRemaining,
-
         location: c.location,
         isActive: c.isActive,
       };
     });
 
-    // optional serviceStatus filter (after computation)
-    let finalCustomers = serviceStatus
-      ? formattedCustomers.filter((c) => c.serviceStatus === serviceStatus)
-      : formattedCustomers;
-
-    if (amcStatus) {
-      finalCustomers = finalCustomers.filter(
-        (c) => c.amcContract?.status === amcStatus,
-      );
-    }
-
     res.status(200).json({
       success: true,
-      count: finalCustomers.length,
-      customers: finalCustomers,
+      totalItems,
+      totalPages,
+      currentPage,
+      perPage,
+      count: formattedCustomers.length,
+      customers: formattedCustomers,
     });
   } catch (error) {
     console.error(error);
@@ -811,5 +911,78 @@ export const getCustomerById = async (req, res) => {
       success: false,
       message: "Failed to fetch customer details",
     });
+  }
+};
+export const updateAmcPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { additionalPaidAmount } = req.body;
+
+    const extra = Number(additionalPaidAmount);
+    if (!Number.isFinite(extra) || extra <= 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid amount" });
+    }
+
+    const customer = await Customer.findOne({
+      _id: id,
+      userId: req.userId,
+      isActive: true,
+    });
+    if (!customer) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Customer not found" });
+    }
+    if (!customer.amcContract) {
+      return res
+        .status(400)
+        .json({ success: false, message: "No AMC contract found" });
+    }
+
+    const currentPaid = customer.amcContract.paidAmcAmount || 0;
+    const totalFee = customer.amcContract.totalAmcAmount || 0;
+    const newPaid = Math.min(
+      currentPaid + extra,
+      totalFee || currentPaid + extra,
+    );
+
+    customer.amcContract.paidAmcAmount = newPaid;
+    customer.amcContract.lastPaymentAmount = extra;
+    customer.amcContract.lastPaymentDate = new Date();
+
+    await customer.save();
+
+    // Create invoice for this additional payment
+    await Invoice.create({
+      userId: req.userId,
+      customerId: customer._id,
+      type: "AMC_PAYMENT",
+      referenceId: customer._id,
+      invoiceDate: new Date(),
+      items: [{ name: "AMC Payment (Additional)", price: extra }],
+      totalAmount: extra,
+      paidAmount: extra,
+      paymentStatus: "PAID",
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "AMC payment updated",
+      amcContract: {
+        ...customer.amcContract.toObject(),
+        status: resolveAmcStatus(customer.amcContract),
+        remainingAmount: Math.max(
+          0,
+          (customer.amcContract.totalAmcAmount || 0) - newPaid,
+        ),
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to update AMC payment" });
   }
 };

@@ -17,8 +17,33 @@ const UpcomingOverdueServices = () => {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const res = await api.get("/api/customers");
-        const customers = res.customers || [];
+        const [overdueRes, upcomingRes] = await Promise.all([
+          api.get("/api/customers", {
+            params: { serviceStatus: "OVERDUE", limit: 500 },
+          }),
+          api.get("/api/customers", {
+            params: { serviceStatus: "UPCOMING", limit: 500 },
+          }),
+        ]);
+
+        setOverdue(
+          (overdueRes.customers || []).map((c) => ({
+            ...c,
+            daysRemaining: Math.ceil(
+              (new Date(c.nextServiceDate) - new Date().setHours(0, 0, 0, 0)) /
+                (1000 * 60 * 60 * 24),
+            ),
+          })),
+        );
+        setUpcoming(
+          (upcomingRes.customers || []).map((c) => ({
+            ...c,
+            daysRemaining: Math.ceil(
+              (new Date(c.nextServiceDate) - new Date().setHours(0, 0, 0, 0)) /
+                (1000 * 60 * 60 * 24),
+            ),
+          })),
+        );
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -26,25 +51,25 @@ const UpcomingOverdueServices = () => {
         const upcomingList = [];
         const overdueList = [];
 
-        customers.forEach((c) => {
-          if (!c.nextServiceDate) return;
+        // customers.forEach((c) => {
+        //   if (!c.nextServiceDate) return;
 
-          const nextDate = new Date(c.nextServiceDate);
-          nextDate.setHours(0, 0, 0, 0);
+        //   const nextDate = new Date(c.nextServiceDate);
+        //   nextDate.setHours(0, 0, 0, 0);
 
-          const diffDays = Math.ceil(
-            (nextDate - today) / (1000 * 60 * 60 * 24),
-          );
+        //   const diffDays = Math.ceil(
+        //     (nextDate - today) / (1000 * 60 * 60 * 24),
+        //   );
 
-          if (diffDays < 0) {
-            overdueList.push({ ...c, daysRemaining: diffDays });
-          } else if (diffDays <= 10) {
-            upcomingList.push({ ...c, daysRemaining: diffDays });
-          }
-        });
+        //   if (diffDays < 0) {
+        //     overdueList.push({ ...c, daysRemaining: diffDays });
+        //   } else if (diffDays <= 10) {
+        //     upcomingList.push({ ...c, daysRemaining: diffDays });
+        //   }
+        // });
 
-        setUpcoming(upcomingList);
-        setOverdue(overdueList);
+        // setUpcoming(upcomingList);
+        // setOverdue(overdueList);
       } catch (err) {
         setError("Failed to load services");
       } finally {

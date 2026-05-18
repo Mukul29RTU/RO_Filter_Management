@@ -5,18 +5,154 @@ import ErrorState from "../components/ErrorState";
 import { useNavigate } from "react-router-dom";
 import "../styles/dash.css";
 
-const Dashboard = () => {
-  const [data, setData] = useState(null);
-  const [user, setUser] = useState(null); // New state for user info
+// ── Invoice type → readable label ──────────────────────────────────────────
+const TYPE_LABEL = {
+  FILTER_SALE: "Filter Sale",
+  SERVICE: "Service",
+  AMC: "AMC",
+};
+
+// ── Pending breakdown modal ────────────────────────────────────────────────
+const PendingModal = ({ onClose }) => {
+  const navigate = useNavigate();
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const fetch = async () => {
+      try {
+        const res = await api.get("/api/dashboard/pending-breakdown");
+        setRows(res.pending || []);
+      } catch (err) {
+        setError(err?.message || "Failed to load pending details");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetch();
+  }, []);
+
+  const totalPending = rows.reduce((sum, r) => sum + r.pendingAmount, 0);
+
+  return (
+    <div className="pm-overlay" onClick={onClose}>
+      <div className="pm-modal" onClick={(e) => e.stopPropagation()}>
+        {/* ── Header ── */}
+        <div className="pm-header">
+          <div>
+            <h3 className="pm-title">Pending Dues</h3>
+            <p className="pm-subtitle">This month's outstanding balances</p>
+          </div>
+          <button className="pm-close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        {/* ── Body ── */}
+        <div className="pm-body">
+          {loading ? (
+            <div className="pm-state">Loading...</div>
+          ) : error ? (
+            <div className="pm-state pm-error">{error}</div>
+          ) : rows.length === 0 ? (
+            <div className="pm-state pm-empty">
+              🎉 No pending dues this month!
+            </div>
+          ) : (
+            <>
+              {/* Table */}
+              <div className="pm-table-wrap">
+                <table className="pm-table">
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>For</th>
+                      <th>Total</th>
+                      <th>Paid</th>
+                      <th>Pending</th>
+                      <th>Contact</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr
+                        key={row.invoiceId}
+                        className="pm-row"
+                        onClick={() => {
+                          if (row.customerId) {
+                            navigate(`/customers/${row.customerId}`);
+                            onClose();
+                          }
+                        }}
+                        style={{
+                          cursor: row.customerId ? "pointer" : "default",
+                        }}
+                      >
+                        <td className="pm-name">{row.customerName}</td>
+                        <td>
+                          <span
+                            className={`pm-type-badge pm-type-${(row.invoiceType || "").toLowerCase()}`}
+                          >
+                            {TYPE_LABEL[row.invoiceType] || row.invoiceType}
+                          </span>
+                        </td>
+                        <td className="pm-amount">
+                          ₹{row.totalAmount.toLocaleString("en-IN")}
+                        </td>
+                        <td className="pm-amount pm-paid">
+                          ₹{row.paidAmount.toLocaleString("en-IN")}
+                        </td>
+                        <td className="pm-amount pm-due">
+                          ₹{row.pendingAmount.toLocaleString("en-IN")}
+                        </td>
+                        <td>
+                          {row.phone ? (
+                            <a
+                              href={`tel:${row.phone}`}
+                              className="pm-phone"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              📞 {row.phone}
+                            </a>
+                          ) : (
+                            <span className="pm-no-phone">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Footer total */}
+              <div className="pm-footer">
+                <span>Total outstanding</span>
+                <span className="pm-footer-total">
+                  ₹{totalPending.toLocaleString("en-IN")}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+const Dashboard = () => {
+  const [data, setData] = useState(null);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [showPendingModal, setShowPendingModal] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     const loadDashboardData = async () => {
       setLoading(true);
       try {
-        // Fetch both Dashboard Summary and User Profile in parallel
         const [summaryRes, userRes] = await Promise.all([
           api.get("/api/dashboard/summary"),
           api.get("/api/auth/me"),
@@ -24,12 +160,8 @@ const Dashboard = () => {
 
         const summary = summaryRes.summary || {};
 
-        // Set User Info
-        if (userRes.success) {
-          setUser(userRes.user);
-        }
+        if (userRes.success) setUser(userRes.user);
 
-        // Set Stats Info
         setData({
           month: summary.month || "",
           money: {
@@ -72,40 +204,6 @@ const Dashboard = () => {
       </div>
 
       <div className="dashboard-content">
-        {/* Quick Actions */}
-        {/* <section className="card card-full">
-          <h2>Quick Actions</h2>
-          <div className="actions">
-            <button
-              className="primary-btn"
-              onClick={() => navigate("/customers/new")}
-            >
-              + Add Customer
-            </button>
-            <button className="btn-2" onClick={() => navigate("/customers")}>
-              View Customers
-            </button>
-            <button
-              className="primary-btn"
-              onClick={() => navigate("/services")}
-            >
-              All Services
-            </button>
-            <button
-              className="primary-btn"
-              onClick={() => navigate("/invoices")}
-            >
-              Invoices
-            </button>
-            <button
-              className="primary-btn"
-              onClick={() => navigate("/inventory")}
-            >
-              Inventory
-            </button>
-          </div>
-        </section> */}
-
         {/* Financial Overview */}
         <section className="card">
           <h2>Revenue overview for this month ({data.month})</h2>
@@ -115,12 +213,22 @@ const Dashboard = () => {
               value={data.money.totalCollected}
               isMoney
             />
-            <Stat
-              label="Pending"
-              value={data.money.pendingAmount}
-              isMoney
-              type="warning"
-            />
+
+            {/* Pending — clickable, opens breakdown modal */}
+            <div
+              className="clickable-stat"
+              onClick={() => setShowPendingModal(true)}
+              title="Click to see who owes money"
+            >
+              <Stat
+                label="Pending"
+                value={data.money.pendingAmount}
+                isMoney
+                type="warning"
+                clickable
+              />
+            </div>
+
             <Stat label="Filter Sales" value={data.money.filterSales} isMoney />
             <Stat
               label="Service Income"
@@ -132,7 +240,7 @@ const Dashboard = () => {
 
         {/* Services Status */}
         <section className="card">
-          <h2>Service Status For This Month </h2>
+          <h2>Service Status For This Month</h2>
           <div className="grid">
             <Stat
               label="Completed"
@@ -164,19 +272,28 @@ const Dashboard = () => {
           </div>
         </section>
       </div>
+
+      {/* Pending breakdown modal */}
+      {showPendingModal && (
+        <PendingModal onClose={() => setShowPendingModal(false)} />
+      )}
     </div>
   );
 };
 
-const Stat = ({ label, value, type, isMoney = false }) => {
-  return (
-    <div className={`stat-box ${type || ""}`}>
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">
-        {isMoney ? `₹${Number(value).toLocaleString()}` : value}
-      </div>
+// ── Stat box ───────────────────────────────────────────────────────────────
+const Stat = ({ label, value, type, isMoney = false, clickable = false }) => (
+  <div
+    className={`stat-box ${type || ""} ${clickable ? "stat-clickable" : ""}`}
+  >
+    <div className="stat-label">
+      {label}
+      {clickable && <span className="stat-hint"> ↗</span>}
     </div>
-  );
-};
+    <div className="stat-value">
+      {isMoney ? `₹${Number(value).toLocaleString()}` : value}
+    </div>
+  </div>
+);
 
 export default Dashboard;
