@@ -56,6 +56,8 @@ const normalizeAmcContract = (customerType, amcContractInput) => {
     cancelledAt: null,
     cancellationReason: "",
     notes: amcContractInput.notes || "",
+    totalAmcAmount: Number(amcContractInput.totalAmcAmount) || 0,
+    paidAmcAmount: Number(amcContractInput.paidAmcAmount) || 0,
   };
 
   if (normalized.status === "CANCELLED") {
@@ -69,12 +71,6 @@ const normalizeAmcContract = (customerType, amcContractInput) => {
 
   return normalized;
 };
-// helper to add months safely
-// const addMonths = (date, months) => {
-//   const d = new Date(date);
-//   d.setMonth(d.getMonth() + months);
-//   return d;
-// };
 
 export const createCustomer = async (req, res) => {
   try {
@@ -98,12 +94,6 @@ export const createCustomer = async (req, res) => {
       serviceCycleMonthsOverride,
       location,
     } = req.body;
-
-    // ── Validation — rules differ by customer type ────────────────────────────
-    //
-    //   REGULAR      → roModel + installationDate required (bought machine from us)
-    //   AMC          → amcContract startDate + endDate required (machine may be external)
-    //   SERVICE_ONLY → only name + phone required (they own their machine)
 
     if (!name || !phone) {
       return res.status(400).json({
@@ -136,18 +126,13 @@ export const createCustomer = async (req, res) => {
       }
     }
 
-    // ── Safely convert dates ──────────────────────────────────────────────────
-    // installationDate only exists for REGULAR — guard against undefined
     const installDateObj = installationDate ? new Date(installationDate) : null;
     const serviceDateObj = lastServiceDate ? new Date(lastServiceDate) : null;
 
-    // ── Financial values (REGULAR only) ───────────────────────────────────────
-    // AMC and SERVICE_ONLY never paid for a machine through us
     const price = customerType === "REGULAR" ? Number(filterPrice) || 0 : 0;
     const paid =
       customerType === "REGULAR" ? Number(initialPaidAmount) || 0 : 0;
 
-    // ── Service cycle override ────────────────────────────────────────────────
     const normalizedServiceCycleOverride =
       serviceCycleMonthsOverride == null
         ? null
@@ -169,8 +154,6 @@ export const createCustomer = async (req, res) => {
       ownerDefaultCycleMonths: req.user?.defaultServiceCycleMonths,
     });
 
-    // ── 2️⃣ Inventory deduct ────────────────────────────────────────────────────
-    // Only REGULAR customers bought the machine from us — skip for all others
     if (customerType === "REGULAR" && roModel) {
       const roStock = await ROModelInventory.findOne({
         userId,
@@ -188,8 +171,6 @@ export const createCustomer = async (req, res) => {
       await roStock.save();
     }
 
-    // ── 3️⃣ Initialize filters ─────────────────────────────────────────────────
-    // Baseline date: last service → installation → today (in that priority)
     const baselineDate = serviceDateObj || installDateObj || new Date();
 
     const initializedFilters = (filters || []).map((f) => ({
@@ -198,7 +179,6 @@ export const createCustomer = async (req, res) => {
       lastChangedDate: baselineDate,
     }));
 
-    // ── 4️⃣ Next service date ──────────────────────────────────────────────────
     let nextServiceDate = null;
 
     if (serviceDateObj) {
@@ -209,17 +189,13 @@ export const createCustomer = async (req, res) => {
         nextServiceDate = addMonths(installDateObj, resolvedServiceCycleMonths);
       }
     }
-    // For AMC / SERVICE_ONLY with no installDate, nextServiceDate stays null
-    // and will be set after their first service record is added
 
-    // ── 5️⃣ Payment status (REGULAR only) ─────────────────────────────────────
     let paymentStatus = "UNPAID";
     if (price > 0) {
       if (paid >= price) paymentStatus = "PAID";
       else if (paid > 0) paymentStatus = "PARTIAL";
     }
 
-    // ── 6️⃣ Create customer ────────────────────────────────────────────────────
     const customer = await Customer.create({
       userId,
       name,
@@ -229,19 +205,18 @@ export const createCustomer = async (req, res) => {
       roBodyType: roBodyType || "",
       customerType,
       amcContract: normalizeAmcContract(customerType, amcContract),
-      installationDate: installDateObj, // null for AMC / SERVICE_ONLY
+      installationDate: installDateObj,
       serviceCycleMonthsOverride: normalizedServiceCycleOverride,
-      filterPrice: price, // 0 for AMC / SERVICE_ONLY
-      filterPaidAmount: paid, // 0 for AMC / SERVICE_ONLY
-      filterPaymentStatus: paymentStatus, // UNPAID for AMC / SERVICE_ONLY
+      filterPrice: price,
+      filterPaidAmount: paid,
+      filterPaymentStatus: paymentStatus,
       lastServiceDate: serviceDateObj,
       nextServiceDate,
       filters: initializedFilters,
       location,
     });
 
-    // ── 7️⃣ Create FILTER_SALE invoice (REGULAR + price > 0 only) ─────────────
-    // AMC and SERVICE_ONLY never bought a machine from us — no sale invoice
+    // FILTER_SALE invoice for Regular customers
     if (customerType === "REGULAR" && price > 0) {
       await Invoice.create({
         userId,
@@ -255,9 +230,14 @@ export const createCustomer = async (req, res) => {
         paymentStatus,
       });
     }
-    // 8️⃣ Create AMC_PAYMENT invoice if payment was collected at registration
+
+    // AMC_PAYMENT invoice if payment was collected at registration
     const amcPaid = Number(amcPaymentAmount) || 0;
     if (customerType === "AMC" && amcPaid > 0) {
+      // Map PENDING → UNPAID for invoice schema
+      const invoicePaymentStatus =
+        amcPaymentStatus === "PENDING" ? "UNPAID" : amcPaymentStatus;
+
       await Invoice.create({
         userId,
         customerId: customer._id,
@@ -267,15 +247,15 @@ export const createCustomer = async (req, res) => {
         items: [{ name: "AMC Registration Payment", price: amcPaid }],
         totalAmount: amcPaid,
         paidAmount: amcPaymentStatus === "PAID" ? amcPaid : 0,
-        paymentStatus: amcPaymentStatus,
+        paymentStatus: invoicePaymentStatus,
       });
 
-      // Update the contract's last payment fields
       await Customer.findByIdAndUpdate(customer._id, {
         "amcContract.lastPaymentAmount": amcPaid,
         "amcContract.lastPaymentDate": new Date(),
       });
     }
+
     return res.status(201).json({
       success: true,
       message: "Customer created successfully",
@@ -289,7 +269,7 @@ export const createCustomer = async (req, res) => {
     });
   }
 };
-// update payment of customer///////
+
 export const updateCustomerPayment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -311,7 +291,6 @@ export const updateCustomerPayment = async (req, res) => {
       });
     }
 
-    // 1. Update customer paid amount
     customer.filterPaidAmount += paidAmount;
 
     if (customer.filterPaidAmount >= customer.filterPrice) {
@@ -325,7 +304,6 @@ export const updateCustomerPayment = async (req, res) => {
 
     await customer.save();
 
-    // 2. Update existing FILTER_SALE invoice (THIS WAS MISSING)
     const invoice = await Invoice.findOne({
       customerId: customer._id,
       type: "FILTER_SALE",
@@ -365,7 +343,7 @@ export const recordAmcPayment = async (req, res) => {
     } = req.body;
 
     const paidNow = Number(amount) || 0;
-    const totalFee = Number(totalAmcAmount) || paidNow; // fall back to paidNow if not provided
+    const totalFee = Number(totalAmcAmount) || paidNow;
 
     if (paidNow <= 0) {
       return res
@@ -420,6 +398,7 @@ export const recordAmcPayment = async (req, res) => {
     if (customer.customerType === "REGULAR") {
       customer.customerType = "AMC";
     }
+
     customer.amcContract = {
       ...(customer.amcContract ? customer.amcContract.toObject() : {}),
       startDate: normalizedStartDate,
@@ -431,10 +410,15 @@ export const recordAmcPayment = async (req, res) => {
       lastPaymentDate: normalizedPaymentDate,
       lastPaymentAmount: paidNow,
       totalAmcAmount: totalFee,
-      paidAmcAmount: (customer.amcContract?.paidAmcAmount || 0) + paidNow,
+      // Start fresh paid tracking for this new AMC period
+      paidAmcAmount: paidNow,
     };
     customer.amcContract.status = resolveAmcStatus(customer.amcContract);
     await customer.save();
+
+    // Map paymentStatus: PENDING → UNPAID (invoice schema only knows PAID/PARTIAL/UNPAID)
+    const invoicePaymentStatus =
+      paidNow >= totalFee ? "PAID" : paidNow > 0 ? "PARTIAL" : "UNPAID";
 
     const invoice = await Invoice.create({
       userId: req.userId,
@@ -445,8 +429,7 @@ export const recordAmcPayment = async (req, res) => {
       items: [{ name: "AMC Payment", price: totalFee }],
       totalAmount: totalFee,
       paidAmount: paidNow,
-      paymentStatus:
-        paidNow >= totalFee ? "PAID" : paidNow > 0 ? "PARTIAL" : "PENDING",
+      paymentStatus: invoicePaymentStatus,
     });
 
     return res.status(201).json({
@@ -667,11 +650,6 @@ export const deleteCustomer = async (req, res) => {
   }
 };
 
-//////////////////////////////////////////
-//////////////////////////////////////////
-//////////////////////////////////////////
-//////////////////////////////////////////
-
 export const getCustomers = async (req, res) => {
   try {
     const {
@@ -686,22 +664,17 @@ export const getCustomers = async (req, res) => {
     } = req.query;
 
     const currentPage = parseInt(page) || 1;
-    const perPage = Math.min(parseInt(limit) || 20, 500); // cap at 100
+    const perPage = Math.min(parseInt(limit) || 20, 500);
     const skip = (currentPage - 1) * perPage;
 
     const query = { userId: req.userId };
 
-    // Status filter
     if (status === "active") query.isActive = true;
     if (status === "inactive") query.isActive = false;
 
-    // Payment status filter
     if (paymentStatus) query.filterPaymentStatus = paymentStatus;
-
-    // Customer type filter
     if (customerType) query.customerType = customerType;
 
-    // Search by name or phone
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: "i" } },
@@ -709,8 +682,6 @@ export const getCustomers = async (req, res) => {
       ];
     }
 
-    // serviceStatus filter — translated to DB-level date comparisons
-    // so pagination counts are accurate without loading all records
     if (serviceStatus) {
       const today = new Date();
       const tenDaysFromNow = new Date(
@@ -728,7 +699,6 @@ export const getCustomers = async (req, res) => {
       }
     }
 
-    // amcStatus filter — translate to DB-level query
     if (amcStatus) {
       const today = new Date();
       if (amcStatus === "ACTIVE") {
@@ -741,11 +711,9 @@ export const getCustomers = async (req, res) => {
       }
     }
 
-    // Get total count first (needed for pagination metadata)
     const totalItems = await Customer.countDocuments(query);
     const totalPages = Math.ceil(totalItems / perPage);
 
-    // Paginated DB query
     const customers = await Customer.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -809,19 +777,13 @@ export const getCustomers = async (req, res) => {
     });
   }
 };
-///// get one customer
-// import { Customer } from "../models/customer.model.js";
 
 export const getCustomerById = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.userId;
 
-    // 1. Fetch customer
-    const customer = await Customer.findOne({
-      _id: id,
-      userId,
-    });
+    const customer = await Customer.findOne({ _id: id, userId });
 
     if (!customer) {
       return res.status(404).json({
@@ -830,7 +792,6 @@ export const getCustomerById = async (req, res) => {
       });
     }
 
-    // 2. Compute service status
     let serviceStatus = "NONE";
     let daysRemaining = null;
 
@@ -846,27 +807,19 @@ export const getCustomerById = async (req, res) => {
       else serviceStatus = "OK";
     }
 
-    // 3. Fetch service history (latest first, lightweight)
-    const services = await Service.find({
-      customerId: customer._id,
-    })
+    const services = await Service.find({ customerId: customer._id })
       .sort({ serviceDate: -1 })
       .select("serviceDate serviceType totalServiceAmount")
       .limit(20);
 
-    // 4. Build response
     res.status(200).json({
       success: true,
       customer: {
         id: customer._id,
-
-        // Basic info
         name: customer.name,
         phone: customer.phone,
         address: customer.address,
         isActive: customer.isActive,
-
-        // RO info
         roModel: customer.roModel,
         roBodyType: customer.roBodyType,
         serviceCycleMonthsOverride: customer.serviceCycleMonthsOverride,
@@ -878,30 +831,20 @@ export const getCustomerById = async (req, res) => {
             }
           : null,
         installationDate: customer.installationDate,
-
-        // Location (optional)
         location: customer.location,
-
-        // Payment summary
         payment: {
           filterPrice: customer.filterPrice,
           paidAmount: customer.filterPaidAmount,
           pendingAmount: customer.filterPrice - customer.filterPaidAmount,
           status: customer.filterPaymentStatus,
         },
-
-        // Service status
         service: {
           lastServiceDate: customer.lastServiceDate,
           nextServiceDate: customer.nextServiceDate,
           serviceStatus,
           daysRemaining,
         },
-
-        // Filters status
         filters: customer.filters,
-
-        // Service history (lightweight)
         serviceHistory: services,
       },
     });
@@ -913,6 +856,7 @@ export const getCustomerById = async (req, res) => {
     });
   }
 };
+
 export const updateAmcPayment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -943,29 +887,37 @@ export const updateAmcPayment = async (req, res) => {
 
     const currentPaid = customer.amcContract.paidAmcAmount || 0;
     const totalFee = customer.amcContract.totalAmcAmount || 0;
-    const newPaid = Math.min(
-      currentPaid + extra,
-      totalFee || currentPaid + extra,
-    );
+    const newPaid =
+      totalFee > 0
+        ? Math.min(currentPaid + extra, totalFee)
+        : currentPaid + extra;
 
     customer.amcContract.paidAmcAmount = newPaid;
     customer.amcContract.lastPaymentAmount = extra;
     customer.amcContract.lastPaymentDate = new Date();
-
     await customer.save();
 
-    // Create invoice for this additional payment
-    await Invoice.create({
+    // ── Find the existing unpaid/partial AMC invoice and UPDATE it ──
+    // This mirrors how Regular filter payment works (one invoice, updated in place)
+    const existingInvoice = await Invoice.findOne({
       userId: req.userId,
       customerId: customer._id,
       type: "AMC_PAYMENT",
-      referenceId: customer._id,
-      invoiceDate: new Date(),
-      items: [{ name: "AMC Payment (Additional)", price: extra }],
-      totalAmount: extra,
-      paidAmount: extra,
-      paymentStatus: "PAID",
-    });
+      paymentStatus: { $in: ["PARTIAL", "UNPAID"] },
+    }).sort({ invoiceDate: -1 }); // most recent outstanding invoice
+
+    if (existingInvoice) {
+      const newInvoicePaid = Math.min(
+        (existingInvoice.paidAmount || 0) + extra,
+        existingInvoice.totalAmount,
+      );
+      existingInvoice.paidAmount = newInvoicePaid;
+      existingInvoice.paymentStatus =
+        newInvoicePaid >= existingInvoice.totalAmount ? "PAID" : "PARTIAL";
+      await existingInvoice.save();
+    }
+
+    const remaining = Math.max(0, totalFee - newPaid);
 
     return res.status(200).json({
       success: true,
@@ -973,10 +925,7 @@ export const updateAmcPayment = async (req, res) => {
       amcContract: {
         ...customer.amcContract.toObject(),
         status: resolveAmcStatus(customer.amcContract),
-        remainingAmount: Math.max(
-          0,
-          (customer.amcContract.totalAmcAmount || 0) - newPaid,
-        ),
+        remainingAmount: remaining,
       },
     });
   } catch (error) {
