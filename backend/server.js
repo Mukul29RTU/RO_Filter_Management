@@ -6,6 +6,7 @@ import customerRoutes from "./routes/customer.routes.js";
 import serviceRoutes from "./routes/service.routes.js";
 import invoiceRoutes from "./routes/invoice.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
+import analyticsRoutes from "./routes/analytics.routes.js";
 import cookieParser from "cookie-parser";
 import connectDB from "./database/db.js";
 import inventoryRoutes from "./routes/inventory.routes.js";
@@ -33,6 +34,7 @@ app.use("/api/customers", customerRoutes);
 app.use("/api/services", serviceRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/analytics", analyticsRoutes);
 app.use("/api/inventory", inventoryRoutes);
 // app.use("/api/roinventory", roinventoryRoutes);
 

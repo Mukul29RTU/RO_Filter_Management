@@ -271,6 +271,28 @@ const Dashboard = () => {
             </div>
           </div>
         </section>
+
+        {/* Analytics shortcut */}
+        <div style={{ textAlign: "center", marginTop: 8, marginBottom: 8 }}>
+          <button
+            onClick={() => navigate("/analytics")}
+            style={{
+              background: "linear-gradient(135deg, #6173c7, #764ba2)",
+              color: "white",
+              border: "none",
+              borderRadius: 12,
+              padding: "12px 32px",
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: "pointer",
+              width: "100%",
+              maxWidth: 400,
+              boxShadow: "0 4px 14px rgba(97,115,199,0.35)",
+            }}
+          >
+            📊 View Full Analytics
+          </button>
+        </div>
       </div>
 
       {/* Pending breakdown modal */}
