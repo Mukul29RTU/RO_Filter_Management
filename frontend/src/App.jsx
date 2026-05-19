@@ -13,6 +13,7 @@ import InvoicesList from "./pages/Invoices/InvoicesList";
 import UpcomingOverdueServices from "./pages/Customers/UpcomingOverdueServices";
 import InventoryParts from "./pages/Customers/InventoryParts";
 import Profile from "./pages/Profile";
+import Analytics from "./pages/Analytics";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -46,6 +47,7 @@ export default function App() {
             />
             <Route path="/inventory" element={<InventoryParts />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/analytics" element={<Analytics />} />
           </Route>
         </Routes>
       </AuthProvider>

@@ -25,21 +25,21 @@ const AMC_FORM_FIELDS = [
     type: "number",
     placeholder: "e.g. 2000",
   },
-  { label: "AMC Start Date", key: "startDate", type: "date" },
-  { label: "AMC End Date", key: "endDate", type: "date" },
-  { label: "Payment Date", key: "paymentDate", type: "date" },
-  {
-    label: "Notes (optional)",
-    key: "notes",
-    type: "text",
-    placeholder: "Any notes",
-  },
-  { label: "Payment Status", key: "paymentStatus", type: "select" },
   {
     label: "Total AMC Fee (₹)",
     key: "totalAmcAmount",
     type: "number",
     placeholder: "Full fee for the period",
+  },
+  { label: "AMC Start Date", key: "startDate", type: "date" },
+  { label: "AMC End Date", key: "endDate", type: "date" },
+  { label: "Payment Date", key: "paymentDate", type: "date" },
+  { label: "Payment Status", key: "paymentStatus", type: "select" },
+  {
+    label: "Notes (optional)",
+    key: "notes",
+    type: "text",
+    placeholder: "Any notes",
   },
 ];
 
@@ -71,6 +71,11 @@ const AmcSection = ({
   const totalFee = customer?.amcContract?.totalAmcAmount || 0;
   const paidSoFar = customer?.amcContract?.paidAmcAmount || 0;
   const remaining = Math.max(0, totalFee - paidSoFar);
+
+  // Remaining due preview inside the Start/Renew modal
+  const modalTotal = Number(amcForm.totalAmcAmount) || 0;
+  const modalPaid = Number(amcForm.amount) || 0;
+  const modalRemaining = Math.max(0, modalTotal - modalPaid);
 
   return (
     <>
@@ -163,9 +168,20 @@ const AmcSection = ({
       {/* ── START / RENEW AMC MODAL ──────────────────────────────────────── */}
       {showAmcModal && (
         <div className="modal-overlay" onClick={closeAmcModal}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>
+          <div
+            className="modal-container"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              maxHeight: "90vh" /* never taller than viewport */,
+              width: "95%",
+              maxWidth: 480,
+            }}
+          >
+            {/* Fixed header */}
+            <div className="modal-header" style={{ flexShrink: 0 }}>
+              <h3 style={{ margin: 0 }}>
                 {amcStatus === "NOT STARTED"
                   ? "Start AMC"
                   : "Renew / Record AMC Payment"}
@@ -175,7 +191,11 @@ const AmcSection = ({
               </button>
             </div>
 
-            <div className="modal-body">
+            {/* Scrollable body */}
+            <div
+              className="modal-body"
+              style={{ overflowY: "auto", flex: 1, paddingTop: 12 }}
+            >
               {amcError && (
                 <div className="delete-error" style={{ marginBottom: 12 }}>
                   {amcError}
@@ -189,6 +209,7 @@ const AmcSection = ({
                       display: "block",
                       marginBottom: 4,
                       fontWeight: 500,
+                      fontSize: 14,
                     }}
                   >
                     {label}
@@ -208,16 +229,18 @@ const AmcSection = ({
                         padding: "8px 10px",
                         borderRadius: 6,
                         border: "1px solid #ccc",
+                        fontSize: 14,
+                        boxSizing: "border-box",
                       }}
                     >
-                      <option value="PAID">Paid</option>
+                      <option value="PAID">Paid in Full</option>
                       <option value="PARTIAL">Partial / Half Paid</option>
                       <option value="PENDING">Pending / Not Collected</option>
                     </select>
                   ) : (
                     <input
                       type={type}
-                      min={type === "number" ? "1" : undefined}
+                      min={type === "number" ? "0" : undefined}
                       value={amcForm[key]}
                       placeholder={placeholder}
                       onChange={(e) =>
@@ -231,44 +254,67 @@ const AmcSection = ({
                         padding: "8px 10px",
                         borderRadius: 6,
                         border: "1px solid #ccc",
+                        fontSize: 14,
+                        boxSizing: "border-box",
                       }}
                     />
                   )}
                 </div>
               ))}
 
-              {/* Remaining due preview */}
-              {amcForm.totalAmcAmount && amcForm.amount && (
+              {/* Remaining due preview — only show when both fields filled */}
+              {modalTotal > 0 && (
                 <div
                   style={{
-                    background: "#f0fdf4",
-                    border: "1px solid #86efac",
+                    background: modalRemaining > 0 ? "#fff7ed" : "#f0fdf4",
+                    border: `1px solid ${modalRemaining > 0 ? "#fed7aa" : "#86efac"}`,
                     borderRadius: 8,
                     padding: "10px 14px",
                     marginBottom: 12,
                     fontSize: 14,
                   }}
                 >
-                  <strong>Remaining due: </strong>₹
-                  {Math.max(
-                    0,
-                    Number(amcForm.totalAmcAmount) - Number(amcForm.amount),
-                  ).toLocaleString("en-IN")}
+                  <div>
+                    Total Fee:{" "}
+                    <strong>₹{modalTotal.toLocaleString("en-IN")}</strong>
+                  </div>
+                  <div>
+                    Paid Now:{" "}
+                    <strong>
+                      ₹{Math.min(modalPaid, modalTotal).toLocaleString("en-IN")}
+                    </strong>
+                  </div>
+                  <div
+                    style={{
+                      color: modalRemaining > 0 ? "#c2410c" : "#16a34a",
+                    }}
+                  >
+                    Remaining Due:{" "}
+                    <strong>₹{modalRemaining.toLocaleString("en-IN")}</strong>
+                  </div>
                 </div>
               )}
+            </div>
 
-              <div className="delete-actions">
-                <button className="btn btn-outline" onClick={closeAmcModal}>
-                  Cancel
-                </button>
-                <button
-                  className="btn btn-primary"
-                  onClick={handleAmcPayment}
-                  disabled={amcLoading}
-                >
-                  {amcLoading ? "Saving..." : "Save AMC Payment"}
-                </button>
-              </div>
+            {/* Fixed footer actions */}
+            <div
+              className="delete-actions"
+              style={{
+                flexShrink: 0,
+                paddingTop: 12,
+                borderTop: "1px solid #e2e8f0",
+              }}
+            >
+              <button className="btn btn-outline" onClick={closeAmcModal}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleAmcPayment}
+                disabled={amcLoading}
+              >
+                {amcLoading ? "Saving..." : "Save AMC Payment"}
+              </button>
             </div>
           </div>
         </div>
@@ -340,6 +386,7 @@ const AmcSection = ({
                   borderRadius: 6,
                   border: "1px solid #ccc",
                   marginBottom: 16,
+                  boxSizing: "border-box",
                 }}
               />
 

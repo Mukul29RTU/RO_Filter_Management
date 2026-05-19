@@ -25,6 +25,13 @@ const resolveServiceCycleMonths = ({
   return FALLBACK_SERVICE_CYCLE_MONTHS;
 };
 
+// Service chargePaymentStatus uses "PENDING"; Invoice paymentStatus uses "UNPAID".
+// Always run through this before writing to an Invoice doc.
+const toInvoiceStatus = (chargeStatus) => {
+  if (chargeStatus === "PENDING") return "UNPAID";
+  return chargeStatus; // "PAID" | "PARTIAL" — valid in both enums
+};
+
 const recomputeCustomerServiceSchedule = async (
   customer,
   ownerDefaultCycleMonths,
@@ -131,15 +138,26 @@ export const createService = async (req, res) => {
       ownerDefaultCycleMonths: owner?.defaultServiceCycleMonths,
     });
 
-    // 1️⃣ Calculate service amount
+    // Calculate amounts
     const totalPartsAmount = replacedParts.reduce(
       (sum, p) => sum + (p.price || 0),
       0,
     );
-
     const totalServiceAmount = totalPartsAmount + serviceCharge;
-    //fix 1
-    // 2️⃣ Create service record
+
+    // How much was actually paid right now
+    const resolvedChargePaid = (() => {
+      if (chargePaymentStatus === "PAID") return totalServiceAmount;
+      if (chargePaymentStatus === "PARTIAL") {
+        const p = Number(rawChargePaid);
+        return Number.isFinite(p) && p > 0
+          ? Math.min(p, totalServiceAmount)
+          : 0;
+      }
+      return 0; // PENDING — nothing collected yet
+    })();
+
+    // Create service record
     const service = await Service.create({
       userId,
       customerId,
@@ -150,44 +168,30 @@ export const createService = async (req, res) => {
       serviceCharge,
       totalServiceAmount,
       chargePaymentStatus,
-      chargePaidAmount: (() => {
-        if (chargePaymentStatus === "PAID") return totalServiceAmount;
-        if (chargePaymentStatus === "PARTIAL") {
-          const p = Number(rawChargePaid);
-          return Number.isFinite(p) && p > 0
-            ? Math.min(p, totalServiceAmount)
-            : 0;
-        }
-        return 0;
-      })(),
+      chargePaidAmount: resolvedChargePaid,
     });
 
-    // 3️⃣ 🔻 Deduct parts inventory (DO NOT BLOCK SERVICE)
+    // Deduct parts inventory (non-blocking)
     for (const part of replacedParts) {
       const inventoryItem = await InventoryItem.findOne({
         userId,
         name: part.partName,
       });
-
       if (inventoryItem) {
-        inventoryItem.quantity -= 1; // allow negative
+        inventoryItem.quantity -= 1;
         await inventoryItem.save();
       }
     }
 
-    // 4️⃣ Update customer service cycle if required
+    // Update customer service cycle
     if (affectsServiceCycle) {
       if (replacedParts.length > 0) {
         customer.filters = customer.filters.map((filter) => {
           const replaced = replacedParts.find(
             (p) => p.partName === filter.name,
           );
-
           if (replaced) {
-            return {
-              ...filter.toObject(),
-              lastChangedDate: actualServiceDate,
-            };
+            return { ...filter.toObject(), lastChangedDate: actualServiceDate };
           }
           return filter;
         });
@@ -207,24 +211,16 @@ export const createService = async (req, res) => {
 
     await customer.save();
 
-    // 5️⃣ Create SERVICE invoice
-    const invoiceItems = [];
-
-    replacedParts.forEach((p) => {
-      invoiceItems.push({
-        name: p.partName,
-        price: p.price || 0,
-      });
-    });
-
-    if (serviceCharge > 0) {
-      invoiceItems.push({
-        name: "Service Charge",
-        price: serviceCharge,
-      });
-    }
-
+    // Create SERVICE invoice only when there is money involved
     if (totalServiceAmount > 0) {
+      const invoiceItems = [];
+      replacedParts.forEach((p) => {
+        invoiceItems.push({ name: p.partName, price: p.price || 0 });
+      });
+      if (serviceCharge > 0) {
+        invoiceItems.push({ name: "Service Charge", price: serviceCharge });
+      }
+
       await Invoice.create({
         userId,
         customerId,
@@ -232,17 +228,9 @@ export const createService = async (req, res) => {
         referenceId: service._id,
         items: invoiceItems,
         totalAmount: totalServiceAmount,
-        paidAmount: (() => {
-          if (chargePaymentStatus === "PAID") return totalServiceAmount;
-          if (chargePaymentStatus === "PARTIAL") {
-            const p = Number(rawChargePaid);
-            return Number.isFinite(p) && p > 0
-              ? Math.min(p, totalServiceAmount)
-              : 0;
-          }
-          return 0;
-        })(),
-        paymentStatus: chargePaymentStatus,
+        paidAmount: resolvedChargePaid,
+        // ← Invoice schema only knows PAID / PARTIAL / UNPAID — map PENDING→UNPAID
+        paymentStatus: toInvoiceStatus(chargePaymentStatus),
         invoiceDate: actualServiceDate,
       });
     }
@@ -261,8 +249,6 @@ export const createService = async (req, res) => {
   }
 };
 
-////get all services
-
 export const getAllServices = async (req, res) => {
   try {
     const {
@@ -280,11 +266,8 @@ export const getAllServices = async (req, res) => {
     const perPage = parseInt(limit) || 10;
     const skip = (currentPage - 1) * perPage;
 
-    const query = {
-      userId: req.userId,
-    };
+    const query = { userId: req.userId };
 
-    // 🔎 Search by customer name
     if (customerName) {
       const matchedCustomers = await Customer.find({
         userId: req.userId,
@@ -306,12 +289,10 @@ export const getAllServices = async (req, res) => {
       query.customerId = { $in: customerIds };
     }
 
-    // Filter by service type
     if (serviceType) {
       query.serviceType = serviceType;
     }
 
-    // Date filtering
     if (month && year) {
       const start = new Date(year, month - 1, 1);
       const end = new Date(year, month, 0, 23, 59, 59);
@@ -322,11 +303,9 @@ export const getAllServices = async (req, res) => {
       if (toDate) query.serviceDate.$lte = new Date(toDate);
     }
 
-    // 🔥 Get total count before pagination
     const totalItems = await Service.countDocuments(query);
     const totalPages = Math.ceil(totalItems / perPage);
 
-    // 🔥 Apply pagination
     const services = await Service.find(query)
       .sort({ serviceDate: -1 })
       .skip(skip)
@@ -364,14 +343,11 @@ export const getAllServices = async (req, res) => {
     });
   }
 };
-// // get service by id
-// import { Service } from "../models/service.model.js";
 
 export const getServiceById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Validate Mongo ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
@@ -381,7 +357,7 @@ export const getServiceById = async (req, res) => {
 
     const service = await Service.findOne({
       _id: id,
-      userId: req.userId, // 🔐 security check
+      userId: req.userId,
     })
       .populate("customerId", "name phone address roModel")
       .lean();
@@ -393,12 +369,10 @@ export const getServiceById = async (req, res) => {
       });
     }
 
-    // Format response
     const formattedService = {
       id: service._id,
       serviceDate: service.serviceDate,
       serviceType: service.serviceType,
-
       customer: {
         id: service.customerId?._id,
         name: service.customerId?.name,
@@ -407,7 +381,8 @@ export const getServiceById = async (req, res) => {
         roModel: service.customerId?.roModel,
       },
       chargePaymentStatus: service.chargePaymentStatus || "PAID",
-      chargePaidAmount: service.chargePaidAmount || service.totalServiceAmount,
+      // Bug fix: don't fall back to totalServiceAmount when 0 — that hides PENDING state
+      chargePaidAmount: service.chargePaidAmount ?? 0,
       serviceCharge: service.serviceCharge,
       replacedParts: service.replacedParts,
       totalServiceAmount: service.totalServiceAmount,
@@ -428,7 +403,6 @@ export const getServiceById = async (req, res) => {
   }
 };
 
-//get services by customer id
 export const getServicesByCustomer = async (req, res) => {
   try {
     const { customerId } = req.params;
@@ -472,6 +446,7 @@ export const getServicesByCustomer = async (req, res) => {
     });
   }
 };
+
 export const updateServicePayment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -499,14 +474,14 @@ export const updateServicePayment = async (req, res) => {
       capped >= service.totalServiceAmount ? "PAID" : "PARTIAL";
     await service.save();
 
-    // Update linked invoice
+    // Update linked invoice — both enums share PAID and PARTIAL so no mapping needed
     const invoice = await Invoice.findOne({
       referenceId: service._id,
       type: "SERVICE",
     });
     if (invoice) {
       invoice.paidAmount = capped;
-      invoice.paymentStatus = service.chargePaymentStatus;
+      invoice.paymentStatus = service.chargePaymentStatus; // "PAID" | "PARTIAL"
       await invoice.save();
     }
 
@@ -522,6 +497,7 @@ export const updateServicePayment = async (req, res) => {
       .json({ success: false, message: "Failed to update payment" });
   }
 };
+
 export const deleteService = async (req, res) => {
   try {
     const { id } = req.params;

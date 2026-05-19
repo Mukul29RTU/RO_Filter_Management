@@ -4,7 +4,7 @@ const filterSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true, // Sediment, Carbon, Membrane
+      required: true,
     },
     lastChangedDate: {
       type: Date,
@@ -12,7 +12,7 @@ const filterSchema = new mongoose.Schema(
     },
     intervalMonths: {
       type: Number,
-      required: true, // usually 6
+      required: true,
     },
   },
   { _id: false },
@@ -50,6 +50,15 @@ const amcContractSchema = new mongoose.Schema(
       default: null,
     },
     lastPaymentAmount: {
+      type: Number,
+      default: 0,
+    },
+    // ── Payment tracking (mirrors filterPrice / filterPaidAmount for Regular) ──
+    totalAmcAmount: {
+      type: Number,
+      default: 0,
+    },
+    paidAmcAmount: {
       type: Number,
       default: 0,
     },
