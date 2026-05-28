@@ -12,6 +12,8 @@ import {
 } from "react-icons/hi2";
 import { useAuth } from "../auth/AuthContext";
 import "../styles/Navbar.css";
+import { FaShoppingCart,FaFileInvoice,FaStore  } from "react-icons/fa";
+
 
 const Navbar = () => {
   const navigate = useNavigate();
@@ -25,8 +27,9 @@ const Navbar = () => {
     { label: "Dashboard", path: "/", icon: <HiHome /> },
     { label: "Customers", path: "/customers", icon: <HiUsers /> },
     { label: "Services", path: "/services", icon: <HiWrenchScrewdriver /> },
-    { label: "Invoices", path: "/invoices", icon: <HiDocumentText /> },
-    { label: "Inventory", path: "/inventory", icon: <HiArchiveBox /> },
+    { label: "Sales Voucher", path: "/sales", icon: <FaShoppingCart   /> },
+    { label: "Invoices", path: "/invoices", icon: <FaFileInvoice /> },
+    { label: "Inventory", path: "/inventory", icon: <FaStore /> },
   ];
 
   // Close dropdown when clicking outside

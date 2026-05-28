@@ -15,6 +15,7 @@ import InventoryParts from "./pages/Customers/InventoryParts";
 import Profile from "./pages/Profile";
 import Analytics from "./pages/Analytics";
 import Layout from "./components/Layout";
+import SalePage from "./pages/Customers/SalePage";
 
 export default function App() {
   return (
@@ -46,6 +47,7 @@ export default function App() {
               element={<UpcomingOverdueServices />}
             />
             <Route path="/inventory" element={<InventoryParts />} />
+            <Route path="/sales" element={<SalePage />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/analytics" element={<Analytics />} />
           </Route>

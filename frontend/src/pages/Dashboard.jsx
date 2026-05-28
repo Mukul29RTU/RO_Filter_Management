@@ -4,6 +4,7 @@ import Loading from "../components/Loading";
 import ErrorState from "../components/ErrorState";
 import { useNavigate } from "react-router-dom";
 import "../styles/dash.css";
+import { FaShoppingCart } from "react-icons/fa";
 
 // ── Invoice type → readable label ──────────────────────────────────────────
 const TYPE_LABEL = {
@@ -272,10 +273,12 @@ const Dashboard = () => {
           </div>
         </section>
 
-        {/* Analytics shortcut */}
+{/* Dashboard Page Shortcut */}
+        <div className="dashboard-shortcuts d-flex flex-wrap gap-3 justify-content-center align-items-center">
+            {/* Sales Page Shortcut */}
         <div style={{ textAlign: "center", marginTop: 8, marginBottom: 8 }}>
           <button
-            onClick={() => navigate("/analytics")}
+            onClick={() => navigate("/sales")}
             style={{
               background: "linear-gradient(135deg, #6173c7, #764ba2)",
               color: "white",
@@ -290,15 +293,43 @@ const Dashboard = () => {
               boxShadow: "0 4px 14px rgba(97,115,199,0.35)",
             }}
           >
-            📊 View Full Analytics
+            <FaShoppingCart /> Sales Voucher
           </button>
         </div>
+
+           {/* Analytics shortcut */}
+          <div style={{ textAlign: "center", marginTop: 8, marginBottom: 8 }}>
+            <button
+              onClick={() => navigate("/analytics")}
+              style={{
+                background: "linear-gradient(135deg, #6173c7, #764ba2)",
+                color: "white",
+                border: "none",
+                borderRadius: 12,
+                padding: "12px 32px",
+                fontSize: 15,
+                fontWeight: 600,
+                cursor: "pointer",
+                width: "100%",
+                maxWidth: 400,
+                boxShadow: "0 4px 14px rgba(97,115,199,0.35)",
+              }}
+            >
+              📊 View Full Analytics
+            </button>
+        </div>
+
+
+      
+      </div>
       </div>
 
       {/* Pending breakdown modal */}
       {showPendingModal && (
         <PendingModal onClose={() => setShowPendingModal(false)} />
       )}
+
+      
     </div>
   );
 };

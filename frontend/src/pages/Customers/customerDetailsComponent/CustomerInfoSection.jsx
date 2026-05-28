@@ -81,7 +81,7 @@ const CustomerInfoSection = ({
             </span>
           </div>
 
-          {isRegular && customer.installationDate && (
+          {customer.installationDate && (
             <div className="install-date">
               Installed on: {formatDate(customer.installationDate)}
             </div>
@@ -137,7 +137,7 @@ const CustomerInfoSection = ({
         {/* Installation / Machine Details */}
         <div className="detail-card">
           <div className="section-title">
-            {isRegular ? "Installation Details" : "Machine Details"}
+            {customer.installationDate ? "Installation Details" : "Machine Details"}
           </div>
 
           <div className="info-row">
@@ -161,7 +161,7 @@ const CustomerInfoSection = ({
             </span>
           </div>
 
-          {isRegular && (
+          {customer.installationDate && (
             <div className="info-row">
               <span className="info-label">Installation Date</span>
               <span className="info-value">
@@ -193,7 +193,7 @@ const CustomerInfoSection = ({
         <div className="detail-card">
           <div className="section-title">Service Health</div>
 
-          {isRegular && (
+          {customer?.payment?.filterPrice > 0  && (
             <div className="info-row">
               <span className="info-label">Payment Status</span>
               <span className={getBadgeClass(customer.payment?.status)}>
@@ -228,7 +228,7 @@ const CustomerInfoSection = ({
       </div>
 
       {/* ── FINANCIAL SUMMARY — REGULAR only ────────────────────────────── */}
-      {isRegular && (
+      { customer?.payment?.filterPrice > 0 && (
         <div className="detail-card financial-card">
           <div className="section-title">💰 Financial Summary</div>
 
